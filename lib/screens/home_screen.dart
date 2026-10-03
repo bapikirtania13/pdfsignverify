@@ -768,7 +768,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       _buildAboutFeatureItem(
                         Icons.check_circle_outline_rounded,
                         'Official Verified Display',
-                        'Generates authentic Adobe-style green checkmark preview',
+                        'Generates authentic verified green checkmark preview',
                         isDark,
                       ),
                     ],

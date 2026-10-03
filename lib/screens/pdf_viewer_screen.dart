@@ -385,7 +385,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     const Icon(Icons.verified, color: Color(0xFF00C853), size: 28),
                     const SizedBox(width: 10),
                     const Text(
-                      'Adobe Verified Signature',
+                      'Verified Digital Signature',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const Spacer(),
