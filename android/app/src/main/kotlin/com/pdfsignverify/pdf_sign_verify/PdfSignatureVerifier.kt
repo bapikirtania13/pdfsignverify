@@ -172,6 +172,14 @@ class PdfSignatureVerifier(private val context: Context) {
                 }
             }
 
+            // Also generate clean, viewable original PDF for encrypted files so Flutter PDFView displays it without error
+            if (!password.isNullOrEmpty()) {
+                val cleanOriginal = generateCleanOriginalPdf(tempFile, password)
+                if (cleanOriginal != null) {
+                    result.put("originalCleanPdfPath", cleanOriginal.absolutePath)
+                }
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "PDF verification error", e)
             val isPasswordError = e is BadPasswordException ||
@@ -928,6 +936,26 @@ class PdfSignatureVerifier(private val context: Context) {
             hasValid -> "VALID"
             hasWarning -> "WARNING"
             else -> "UNKNOWN"
+        }
+    }
+
+    /**
+     * Generate an unencrypted displayable copy of the original PDF (without adding any checkmark),
+     * so that the Flutter PDF view engine can render password-protected documents smoothly.
+     */
+    private fun generateCleanOriginalPdf(originalFile: File, password: String): File? {
+        return try {
+            val cleanFile = File(context.cacheDir, "original_clean_${System.currentTimeMillis()}.pdf")
+            val readerProps = ReaderProperties()
+            readerProps.setPassword(password.toByteArray(Charsets.UTF_8))
+            val pdfReader = PdfReader(originalFile.absolutePath, readerProps)
+            val pdfWriter = PdfWriter(cleanFile.absolutePath)
+            val pdfDoc = PdfDocument(pdfReader, pdfWriter)
+            pdfDoc.close()
+            cleanFile
+        } catch (e: Exception) {
+            Log.e(TAG, "Error generating clean original PDF", e)
+            null
         }
     }
 

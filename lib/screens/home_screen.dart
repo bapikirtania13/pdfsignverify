@@ -2,11 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
 import '../services/verification_service.dart';
+import '../services/history_service.dart';
 import '../services/ad_service.dart';
+import '../widgets/app_banner_ad_widget.dart';
+import '../widgets/app_native_ad_widget.dart';
+import '../widgets/bouncing_tap.dart';
 import 'verification_screen.dart';
+
+class BatchPdfItem {
+  final String path;
+  final String name;
+  final int size;
+  String status; // 'PENDING', 'VERIFYING', 'VALID', 'INVALID', 'NO_SIGNATURES', 'SKIPPED', 'ERROR'
+  String? errorMessage;
+  Map<String, dynamic>? result;
+  String? password;
+
+  BatchPdfItem({
+    required this.path,
+    required this.name,
+    required this.size,
+    this.status = 'PENDING',
+    this.errorMessage,
+    this.result,
+    this.password,
+  });
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,78 +46,20 @@ class _HomeScreenState extends State<HomeScreen> {
   int? _selectedFileSize;
   bool _isVerifying = false;
 
-  BannerAd? _homeBannerAd;
-  bool _isBannerLoaded = false;
-  int _bannerRetryCount = 0;
-
-  NativeAd? _homeNativeAd;
-  bool _isNativeAdLoaded = false;
+  List<BatchPdfItem> _batchItems = [];
+  List<HistoryItem> _historyItems = [];
 
   @override
   void initState() {
     super.initState();
-    // Delay ad loading slightly to let engine initialize smoothly
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      if (mounted) {
-        _loadHomeBannerAd();
-        _loadHomeNativeAd();
-      }
-    });
+    _loadHistory();
   }
 
-  void _loadHomeBannerAd() {
-    _homeBannerAd?.dispose();
-    _homeBannerAd = BannerAd(
-      adUnitId: AdService.homeBannerId,
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          if (mounted) setState(() => _isBannerLoaded = true);
-        },
-        onAdFailedToLoad: (ad, error) {
-          debugPrint('Home BannerAd failed to load: ${error.message}');
-          ad.dispose();
-          _homeBannerAd = null;
-          // Retry up to 3 times with increasing delay
-          if (_bannerRetryCount < 3 && mounted) {
-            _bannerRetryCount++;
-            Future.delayed(Duration(seconds: 3 * _bannerRetryCount), () {
-              if (mounted) _loadHomeBannerAd();
-            });
-          }
-        },
-      ),
-    )..load();
-  }
-
-  void _loadHomeNativeAd() {
-    _homeNativeAd?.dispose();
-    _homeNativeAd = NativeAd(
-      adUnitId: AdService.nativeAdId,
-      request: const AdRequest(),
-      listener: NativeAdListener(
-        onAdLoaded: (ad) {
-          if (mounted) setState(() => _isNativeAdLoaded = true);
-        },
-        onAdFailedToLoad: (ad, error) {
-          debugPrint('Home Native Ad failed to load: ${error.message}');
-          ad.dispose();
-          _homeNativeAd = null;
-        },
-      ),
-      nativeTemplateStyle: NativeTemplateStyle(
-        templateType: TemplateType.small,
-        cornerRadius: 12.0,
-      ),
-    )..load();
-  }
-
-  @override
-  void dispose() {
-    _homeBannerAd?.dispose();
-    _homeNativeAd?.dispose();
-    super.dispose();
+  Future<void> _loadHistory() async {
+    final items = await HistoryService.getHistory();
+    if (mounted) {
+      setState(() => _historyItems = items);
+    }
   }
 
   Future<void> _pickPdf() async {
@@ -101,18 +67,34 @@ class _HomeScreenState extends State<HomeScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
+        allowMultiple: true,
         withData: false,
         withReadStream: false,
       );
 
       if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        setState(() {
-          _selectedFilePath = file.path;
-          _selectedFileUri = file.path != null ? 'file://${file.path}' : null;
-          _selectedFileName = file.name;
-          _selectedFileSize = file.size;
-        });
+        if (result.files.length == 1) {
+          final file = result.files.first;
+          setState(() {
+            _batchItems.clear();
+            _selectedFilePath = file.path;
+            _selectedFileUri = file.path != null ? 'file://${file.path}' : null;
+            _selectedFileName = file.name;
+            _selectedFileSize = file.size;
+          });
+        } else {
+          // Multiple PDFs selected
+          setState(() {
+            _selectedFilePath = null;
+            _selectedFileUri = null;
+            _selectedFileName = null;
+            _selectedFileSize = null;
+            _batchItems = result.files
+                .where((f) => f.path != null)
+                .map((f) => BatchPdfItem(name: f.name, path: f.path!, size: f.size))
+                .toList();
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -130,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_selectedFilePath == null) return;
 
     setState(() => _isVerifying = true);
+    AdService.isOperationInProgress = true;
 
     try {
       final actualUri = _selectedFileUri ??
@@ -153,6 +136,25 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
+      // Record in History
+      final sigs = verificationResult['signatures'] as List<dynamic>? ?? [];
+      String? signer;
+      if (sigs.isNotEmpty) {
+        final firstSig = sigs.first as Map<String, dynamic>;
+        signer = firstSig['documentSignerName'] as String? ?? firstSig['signerName'] as String?;
+      }
+      await HistoryService.addItem(HistoryItem(
+        fileName: _selectedFileName ?? 'Document.pdf',
+        filePath: _selectedFilePath!,
+        status: verificationResult['status'] as String? ?? 'UNKNOWN',
+        signerName: signer,
+        timestamp: DateTime.now(),
+        result: verificationResult,
+      ));
+      _loadHistory();
+
+      if (!mounted) return;
+
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => VerificationScreen(
@@ -173,10 +175,220 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     } finally {
+      AdService.isOperationInProgress = false;
       if (mounted) {
         setState(() => _isVerifying = false);
       }
     }
+  }
+
+  Future<void> _verifyBatch() async {
+    if (_batchItems.isEmpty) return;
+    setState(() => _isVerifying = true);
+    AdService.isOperationInProgress = true;
+
+    try {
+      for (int i = 0; i < _batchItems.length; i++) {
+        final item = _batchItems[i];
+        if (item.status == 'VALID' || item.status == 'INVALID' || item.status == 'NO_SIGNATURES') {
+          continue; // Already verified
+        }
+
+        setState(() {
+          item.status = 'VERIFYING';
+        });
+
+        final actualUri = item.path.startsWith('/') ? 'file://${item.path}' : 'file:///${item.path}';
+        var res = await VerificationService.verifyPdf(actualUri, password: item.password);
+
+        // Handle Password Protected PDF in Batch
+        if (res['status'] == 'PASSWORD_REQUIRED' && mounted) {
+          final enteredPwd = await _promptPasswordForBatchItem(item);
+          if (enteredPwd == null) {
+            // User chose to skip this specific PDF
+            setState(() {
+              item.status = 'SKIPPED';
+              item.errorMessage = 'Password skipped';
+            });
+            continue; // Continue seamlessly with next PDF in batch!
+          } else {
+            item.password = enteredPwd;
+            res = await VerificationService.verifyPdf(actualUri, password: enteredPwd);
+          }
+        }
+
+        final resStatus = res['status'] as String? ?? 'ERROR';
+        setState(() {
+          item.result = res;
+          item.status = resStatus;
+          if (resStatus == 'ERROR') {
+            item.errorMessage = res['error'] as String? ?? 'Verification failed';
+          }
+        });
+
+        // Add to history
+        if (item.status != 'SKIPPED') {
+          final sigs = res['signatures'] as List<dynamic>? ?? [];
+          String? signer;
+          if (sigs.isNotEmpty) {
+            final firstSig = sigs.first as Map<String, dynamic>;
+            signer = firstSig['documentSignerName'] as String? ?? firstSig['signerName'] as String?;
+          }
+          await HistoryService.addItem(HistoryItem(
+            fileName: item.name,
+            filePath: item.path,
+            status: item.status,
+            signerName: signer,
+            timestamp: DateTime.now(),
+            result: res,
+          ));
+        }
+      }
+      _loadHistory();
+    } catch (e) {
+      debugPrint('[HomeScreen] Batch error: $e');
+    } finally {
+      AdService.isOperationInProgress = false;
+      if (mounted) {
+        setState(() => _isVerifying = false);
+      }
+    }
+  }
+
+  Future<String?> _promptPasswordForBatchItem(BatchPdfItem item) async {
+    final passwordController = TextEditingController();
+    bool obscurePassword = true;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              backgroundColor: isDark ? AppTheme.darkSurface : Colors.white,
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warningColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.lock_rounded,
+                      color: AppTheme.warningColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Password Protected',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppTheme.darkSurfaceVariant : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.picture_as_pdf_rounded, size: 20, color: Colors.redAccent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            item.name,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'This file is encrypted. Enter its password or skip this file to continue verifying the rest of the batch.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: passwordController,
+                    obscureText: obscurePassword,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      hintText: 'Enter password for this PDF',
+                      prefixIcon: const Icon(Icons.key_rounded, size: 20),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          obscurePassword ? Icons.visibility_off : Icons.visibility,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          setDialogState(() {
+                            obscurePassword = !obscurePassword;
+                          });
+                        },
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                    onSubmitted: (pwd) {
+                      if (pwd.trim().isNotEmpty) {
+                        Navigator.pop(dialogCtx, pwd.trim());
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx, null),
+                  child: const Text('Skip This PDF'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () {
+                    final pwd = passwordController.text.trim();
+                    if (pwd.isNotEmpty) {
+                      Navigator.pop(dialogCtx, pwd);
+                    } else {
+                      Navigator.pop(dialogCtx, null);
+                    }
+                  },
+                  child: const Text('Unlock & Verify'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _promptForPassword({bool isRetry = false, String? errorMsg}) {
@@ -331,15 +543,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: _isBannerLoaded && _homeBannerAd != null
-          ? SafeArea(
-              child: SizedBox(
-                width: _homeBannerAd!.size.width.toDouble(),
-                height: _homeBannerAd!.size.height.toDouble(),
-                child: AdWidget(ad: _homeBannerAd!),
-              ),
-            )
-          : null,
+      bottomNavigationBar: const AppBannerAdWidget(
+        adUnitId: AdService.homeBannerId,
+      ),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -416,7 +622,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _buildSelectPdfSection(isDark, colorScheme),
                   ),
 
-                  // Selected file info
+                  // If multiple files selected: Batch Section
+                  if (_batchItems.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    _buildBatchSection(isDark, colorScheme),
+                  ],
+
+                  // Selected single file info
                   if (_selectedFilePath != null) ...[
                     const SizedBox(height: 16),
                     FadeInUp(
@@ -430,29 +642,435 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
 
-                  // Native Ad on Home Page
-                  if (_isNativeAdLoaded && _homeNativeAd != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      height: 90,
-                      decoration: BoxDecoration(
-                        color: isDark ? AppTheme.darkSurface : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isDark ? Colors.white12 : Colors.grey.shade200,
-                        ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: AdWidget(ad: _homeNativeAd!),
-                      ),
-                    ),
+                  // Verification History Section
+                  if (_historyItems.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    _buildHistorySection(isDark),
                   ],
+
+                  // Native Ad on Home Page
+                  const SizedBox(height: 20),
+                  const AppNativeAdWidget(
+                    adUnitId: AdService.nativeAdId,
+                  ),
 
                   const SizedBox(height: 32),
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBatchSection(bool isDark, ColorScheme colorScheme) {
+    final pendingCount = _batchItems.where((i) => i.status == 'PENDING').length;
+    final verifyingCount = _batchItems.where((i) => i.status == 'VERIFYING').length;
+    final validCount = _batchItems.where((i) => i.status == 'VALID').length;
+    final skippedCount = _batchItems.where((i) => i.status == 'SKIPPED').length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkSurfaceVariant : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppTheme.primaryColor.withValues(alpha: 0.25),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.folder_zip_rounded, color: AppTheme.primaryColor, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Batch Queue (${_batchItems.length} PDFs)',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    Text(
+                      _isVerifying
+                          ? 'Verifying files...'
+                          : '$validCount Valid • $skippedCount Skipped • $pendingCount Pending',
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: _isVerifying
+                    ? null
+                    : () {
+                        setState(() {
+                          _batchItems.clear();
+                        });
+                      },
+                child: const Text('Clear'),
+              ),
+            ],
+          ),
+          const Divider(height: 20),
+          // List of items
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 280),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: _batchItems.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final item = _batchItems[index];
+                return _buildBatchItemTile(item, isDark);
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Button to verify batch
+          BouncingTap(
+            onTap: _isVerifying ? null : _verifyBatch,
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: null, // handled by BouncingTap
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: Colors.white,
+                  disabledForegroundColor: Colors.white,
+                  disabledBackgroundColor: AppTheme.primaryColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: _isVerifying
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.verified_user_rounded, size: 20),
+                label: Text(
+                  _isVerifying
+                      ? 'Verifying Batch...'
+                      : (pendingCount == 0 && verifyingCount == 0
+                          ? 'Re-Verify All (${_batchItems.length} PDFs)'
+                          : 'Verify All (${_batchItems.length} PDFs)'),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBatchItemTile(BatchPdfItem item, bool isDark) {
+    Color badgeColor;
+    String badgeText;
+    IconData? badgeIcon;
+
+    switch (item.status) {
+      case 'VALID':
+        badgeColor = const Color(0xFF008A2A);
+        badgeText = '✓ Valid';
+        badgeIcon = Icons.check_circle_rounded;
+        break;
+      case 'INVALID':
+        badgeColor = AppTheme.invalidColor;
+        badgeText = '✗ Invalid';
+        badgeIcon = Icons.cancel_rounded;
+        break;
+      case 'NO_SIGNATURES':
+        badgeColor = AppTheme.warningColor;
+        badgeText = '⚠ Unsigned';
+        badgeIcon = Icons.warning_amber_rounded;
+        break;
+      case 'SKIPPED':
+        badgeColor = Colors.amber.shade800;
+        badgeText = '🔒 Skipped';
+        badgeIcon = Icons.lock_clock_rounded;
+        break;
+      case 'VERIFYING':
+        badgeColor = AppTheme.primaryColor;
+        badgeText = 'Verifying...';
+        break;
+      case 'ERROR':
+        badgeColor = AppTheme.invalidColor;
+        badgeText = 'Error';
+        badgeIcon = Icons.error_outline_rounded;
+        break;
+      default:
+        badgeColor = Colors.grey;
+        badgeText = 'Queued';
+        badgeIcon = Icons.schedule_rounded;
+    }
+
+    final canOpen = item.result != null;
+
+    return BouncingTap(
+      onTap: canOpen
+          ? () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => VerificationScreen(
+                    result: item.result!,
+                    pdfPath: item.path,
+                    fileName: item.name,
+                    password: item.password,
+                  ),
+                ),
+              );
+            }
+          : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkSurface : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    item.errorMessage ?? _formatFileSize(item.size),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: item.status == 'SKIPPED'
+                          ? Colors.amber.shade800
+                          : (isDark ? Colors.white54 : Colors.grey.shade600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: badgeColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: item.status == 'VERIFYING'
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(badgeColor),
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          badgeText,
+                          style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (badgeIcon != null) ...[
+                          Icon(badgeIcon, size: 12, color: badgeColor),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          badgeText,
+                          style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+            ),
+            if (canOpen) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded, size: 18, color: isDark ? Colors.white38 : Colors.grey.shade400),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistorySection(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.history_rounded, size: 18, color: AppTheme.primaryColor),
+                const SizedBox(width: 6),
+                Text(
+                  'Recent Verifications',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.grey.shade900,
+                  ),
+                ),
+              ],
+            ),
+            TextButton(
+              onPressed: () async {
+                await HistoryService.clearHistory();
+                _loadHistory();
+              },
+              child: const Text('Clear All', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _historyItems.length > 5 ? 5 : _historyItems.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final item = _historyItems[index];
+            return _buildHistoryItemTile(item, isDark);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryItemTile(HistoryItem item, bool isDark) {
+    Color badgeColor;
+    String badgeText;
+
+    switch (item.status) {
+      case 'VALID':
+        badgeColor = const Color(0xFF008A2A);
+        badgeText = '✓ Valid';
+        break;
+      case 'INVALID':
+        badgeColor = AppTheme.invalidColor;
+        badgeText = '✗ Invalid';
+        break;
+      case 'NO_SIGNATURES':
+        badgeColor = AppTheme.warningColor;
+        badgeText = '⚠ Unsigned';
+        break;
+      default:
+        badgeColor = Colors.grey;
+        badgeText = item.status;
+    }
+
+    final formattedDate = DateFormat('d MMM, h:mm a').format(item.timestamp);
+
+    return BouncingTap(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => VerificationScreen(
+              result: item.result,
+              pdfPath: item.filePath,
+              fileName: item.fileName,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkSurfaceVariant : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.fileName,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.signerName != null
+                        ? '${item.signerName} • $formattedDate'
+                        : formattedDate,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white54 : Colors.grey.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: badgeColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                badgeText,
+                style: TextStyle(
+                  color: badgeColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded, size: 18, color: isDark ? Colors.white38 : Colors.grey.shade400),
           ],
         ),
       ),
@@ -471,9 +1089,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSelectPdfSection(bool isDark, ColorScheme colorScheme) {
-    return InkWell(
+    return BouncingTap(
       onTap: _isVerifying ? null : _pickPdf,
-      borderRadius: BorderRadius.circular(16),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
@@ -599,21 +1216,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildVerifyButton(ColorScheme colorScheme) {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: ElevatedButton(
-        onPressed: _isVerifying ? null : _verifySignature,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppTheme.primaryColor,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: AppTheme.primaryColor.withValues(alpha: 0.5),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+    return BouncingTap(
+      onTap: _isVerifying ? null : _verifySignature,
+      child: SizedBox(
+        width: double.infinity,
+        height: 54,
+        child: ElevatedButton(
+          onPressed: null, // handled by BouncingTap
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primaryColor,
+            foregroundColor: Colors.white,
+            disabledForegroundColor: Colors.white,
+            disabledBackgroundColor: AppTheme.primaryColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            elevation: 2,
           ),
-          elevation: 2,
-        ),
-        child: _isVerifying
+          child: _isVerifying
             ? const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -650,6 +1270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
+        ),
       ),
     );
   }

@@ -1,15 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:animate_do/animate_do.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../theme/app_theme.dart';
 import '../services/report_service.dart';
 import '../services/verification_service.dart';
 import '../services/pdf_download_service.dart';
 import '../services/ad_service.dart';
+import '../widgets/app_banner_ad_widget.dart';
+import '../widgets/app_native_ad_widget.dart';
 import 'pdf_viewer_screen.dart';
 import '../widgets/signature_card.dart';
+import '../widgets/bouncing_tap.dart';
 
 class VerificationScreen extends StatefulWidget {
   final Map<String, dynamic> result;
@@ -34,65 +37,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   String get pdfPath => widget.pdfPath;
   String get fileName => widget.fileName;
 
-  BannerAd? _verifyBannerAd;
-  bool _isBannerLoaded = false;
-
-  NativeAd? _nativeAd;
-  bool _isNativeLoaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadVerifyBannerAd();
-    _loadNativeAd();
-  }
-
-  void _loadVerifyBannerAd() {
-    _verifyBannerAd = BannerAd(
-      adUnitId: AdService.verifyBannerId,
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          if (mounted) setState(() => _isBannerLoaded = true);
-        },
-        onAdFailedToLoad: (ad, error) {
-          debugPrint('Verify BannerAd failed to load: ${error.message}');
-          ad.dispose();
-          _verifyBannerAd = null;
-        },
-      ),
-    )..load();
-  }
-
-  void _loadNativeAd() {
-    _nativeAd = NativeAd(
-      adUnitId: AdService.nativeAdId,
-      request: const AdRequest(),
-      listener: NativeAdListener(
-        onAdLoaded: (ad) {
-          if (mounted) setState(() => _isNativeLoaded = true);
-        },
-        onAdFailedToLoad: (ad, error) {
-          debugPrint('Native Ad failed to load: ${error.message}');
-          ad.dispose();
-          _nativeAd = null;
-        },
-      ),
-      nativeTemplateStyle: NativeTemplateStyle(
-        templateType: TemplateType.small,
-        cornerRadius: 12.0,
-      ),
-    )..load();
-  }
-
-  @override
-  void dispose() {
-    _verifyBannerAd?.dispose();
-    _nativeAd?.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -103,15 +47,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
       appBar: AppBar(
         title: const Text('Verification Result'),
       ),
-      bottomNavigationBar: _isBannerLoaded && _verifyBannerAd != null
-          ? SafeArea(
-              child: SizedBox(
-                width: _verifyBannerAd!.size.width.toDouble(),
-                height: _verifyBannerAd!.size.height.toDouble(),
-                child: AdWidget(ad: _verifyBannerAd!),
-              ),
-            )
-          : null,
+      bottomNavigationBar: const AppBannerAdWidget(
+        adUnitId: AdService.verifyBannerId,
+      ),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -136,23 +74,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   ),
 
                   // Native Ad Card below action buttons
-                  if (_isNativeLoaded && _nativeAd != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      height: 90,
-                      decoration: BoxDecoration(
-                        color: isDark ? AppTheme.darkSurface : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isDark ? Colors.white12 : Colors.grey.shade200,
-                        ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: AdWidget(ad: _nativeAd!),
-                      ),
-                    ),
-                  ],
+                  const SizedBox(height: 16),
+                  const AppNativeAdWidget(
+                    adUnitId: AdService.nativeAdId,
+                  ),
 
                   const SizedBox(height: 20),
 
@@ -292,34 +217,42 @@ class _VerificationScreenState extends State<VerificationScreen> {
     if (status == 'NO_SIGNATURES') {
       return Column(
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: _pickAndVerifyNewPdf,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-              ),
-              icon: const Icon(Icons.upload_file_rounded, size: 22),
-              label: const Text(
-                'Upload Digitally Signed PDF',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          BouncingTap(
+            onTap: _pickAndVerifyNewPdf,
+            child: SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: null, // handled by BouncingTap
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: Colors.white,
+                  disabledForegroundColor: Colors.white,
+                  disabledBackgroundColor: AppTheme.primaryColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
+                ),
+                icon: const Icon(Icons.upload_file_rounded, size: 22),
+                label: const Text(
+                  'Upload Digitally Signed PDF',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
               ),
             ),
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: OutlinedButton.icon(
-              onPressed: () => _openPdfViewer(context, preferVerified: false),
-              icon: const Icon(Icons.visibility_rounded, size: 20),
-              label: const Text('View Uploaded Document'),
-              style: OutlinedButton.styleFrom(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          BouncingTap(
+            onTap: () => _openPdfViewer(context, preferVerified: false),
+            child: SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: OutlinedButton.icon(
+                onPressed: null, // handled by BouncingTap
+                icon: const Icon(Icons.visibility_rounded, size: 20),
+                label: const Text('View Uploaded Document'),
+                style: OutlinedButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
             ),
           ),
@@ -331,76 +264,92 @@ class _VerificationScreenState extends State<VerificationScreen> {
       children: [
         // 1. View Verified PDF
         if (hasVerified) ...[
-          SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: ElevatedButton.icon(
-              onPressed: () => _openPdfViewer(context, preferVerified: true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF008A2A),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 3,
-              ),
-              icon: const Icon(Icons.verified_rounded, size: 24),
-              label: const Text(
-                'View Verified PDF',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          BouncingTap(
+            onTap: () => _openPdfViewer(context, preferVerified: true),
+            child: SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton.icon(
+                onPressed: null, // handled by BouncingTap
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF008A2A),
+                  foregroundColor: Colors.white,
+                  disabledForegroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFF008A2A),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 3,
+                ),
+                icon: const Icon(Icons.verified_rounded, size: 24),
+                label: const Text(
+                  'View Verified PDF',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
               ),
             ),
           ),
           const SizedBox(height: 10),
         ],
         // 2. View Original Unmodified PDF
-        SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: OutlinedButton.icon(
-            onPressed: () => _openPdfViewer(context, preferVerified: !hasVerified),
-            icon: const Icon(Icons.description_outlined, size: 20),
-            label: Text(hasVerified ? 'View Original Unmodified PDF' : 'View PDF'),
-            style: OutlinedButton.styleFrom(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        BouncingTap(
+          onTap: () => _openPdfViewer(context, preferVerified: !hasVerified),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: null, // handled by BouncingTap
+              icon: const Icon(Icons.description_outlined, size: 20),
+              label: Text(hasVerified ? 'View Original Unmodified PDF' : 'View PDF'),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
         ),
         const SizedBox(height: 10),
         // 3. Download / Save PDF
-        SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: ElevatedButton.icon(
-            onPressed: () {
-              PdfDownloadService.showDownloadSheet(
-                context: context,
-                originalPath: pdfPath,
-                verifiedPath: verifiedPath,
-                baseFileName: fileName,
-              );
-            },
-            icon: const Icon(Icons.download_rounded, size: 20),
-            label: const Text(
-              'Download / Save PDF',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isDark ? const Color(0xFF1E3A5F) : const Color(0xFF0D47A1),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        BouncingTap(
+          onTap: () {
+            PdfDownloadService.showDownloadSheet(
+              context: context,
+              originalPath: pdfPath,
+              verifiedPath: verifiedPath,
+              baseFileName: fileName,
+            );
+          },
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: null, // handled by BouncingTap
+              icon: const Icon(Icons.download_rounded, size: 20),
+              label: const Text(
+                'Download / Save PDF',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isDark ? const Color(0xFF1E3A5F) : const Color(0xFF0D47A1),
+                foregroundColor: Colors.white,
+                disabledForegroundColor: Colors.white,
+                disabledBackgroundColor: isDark ? const Color(0xFF1E3A5F) : const Color(0xFF0D47A1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
         ),
         const SizedBox(height: 10),
         // 4. Export Verification Report
-        SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: OutlinedButton.icon(
-            onPressed: () => _exportReport(context),
-            icon: const Icon(Icons.receipt_long_rounded, size: 20),
-            label: const Text('Export Verification Report'),
-            style: OutlinedButton.styleFrom(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        BouncingTap(
+          onTap: () => _exportReport(context),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: null, // handled by BouncingTap
+              icon: const Icon(Icons.receipt_long_rounded, size: 20),
+              label: const Text('Export Verification Report'),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
         ),
@@ -498,6 +447,288 @@ class _VerificationScreenState extends State<VerificationScreen> {
           ),
           _buildDetailRow(Icons.account_balance_rounded, 'Certified By', caName, isDark),
           _buildDetailRow(Icons.picture_as_pdf_rounded, 'File Name', fileName, isDark),
+          if (certInfo != null) ...[
+            const SizedBox(height: 12),
+            BouncingTap(
+              onTap: () => _showCertificateModal(context, certInfo, isDark),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: null, // handled by BouncingTap
+                  icon: const Icon(Icons.security_rounded, size: 18),
+                  label: const Text(
+                    'Inspect Certificate & Trust Chain',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showCertificateModal(BuildContext context, Map<String, dynamic> certInfo, bool isDark) {
+    final subject = certInfo['subject'] as String? ?? 'Signer';
+    final issuer = certInfo['issuer'] as String? ?? 'Certificate Authority';
+    final validFrom = certInfo['validFrom'] as String? ?? 'N/A';
+    final validUntil = certInfo['validUntil'] as String? ?? 'N/A';
+    final thumbprint = certInfo['sha256Thumbprint'] as String? ??
+        certInfo['fingerprint'] as String? ??
+        certInfo['serialNumber'] as String? ??
+        '';
+    final sigAlg = certInfo['signatureAlgorithm'] as String? ?? 'SHA256withRSA';
+    final keyAlg = certInfo['keyAlgorithm'] as String? ?? 'RSA 2048-bit';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: isDark ? AppTheme.darkSurface : Colors.white,
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).padding.bottom;
+
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.82,
+          maxChildSize: 0.95,
+          minChildSize: 0.50,
+          builder: (_, scrollController) {
+            return Column(
+              children: [
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.shield_outlined, color: AppTheme.primaryColor, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'X.509 Digital Certificate',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 16),
+                // Expanded scrollable details
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    children: [
+                      // Trust Hierarchy Tree
+                      Text(
+                        'Trust Chain Hierarchy',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                          color: isDark ? Colors.white60 : Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppTheme.darkSurfaceVariant : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.account_balance_rounded, size: 16, color: Color(0xFF008A2A)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Root CA: ${_getSimplifiedIssuer(certInfo)}',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 7),
+                              child: Container(
+                                width: 2,
+                                height: 18,
+                                color: const Color(0xFF008A2A).withValues(alpha: 0.5),
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                const Icon(Icons.verified_user_rounded, size: 16, color: AppTheme.primaryColor),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Signer: $subject',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      // Detailed Fields
+                      _buildModalRow('Subject (Owner)', subject, isDark),
+                      _buildModalRow('Issuer (CA)', issuer, isDark),
+                      _buildModalRow('Valid From', validFrom, isDark),
+                      _buildModalRow('Valid Until', validUntil, isDark),
+                      _buildModalRow('Key Type & Algorithm', '$keyAlg ($sigAlg)', isDark),
+                      if (thumbprint.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'SHA-256 Fingerprint',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white60 : Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.black26 : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: SelectableText(
+                                  thumbprint,
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.copy_rounded, size: 18),
+                                tooltip: 'Copy Fingerprint',
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: thumbprint));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Fingerprint copied to clipboard'),
+                                      duration: Duration(seconds: 1),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+                // Pinned Bottom Action with safe area clearance
+                Container(
+                  padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottomInset),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.darkSurface : Colors.white,
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark ? Colors.white12 : Colors.grey.shade200,
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  child: BouncingTap(
+                    onTap: () => Navigator.pop(ctx),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: AppTheme.primaryColor,
+                          disabledForegroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                        ),
+                        onPressed: null, // handled by BouncingTap
+                        child: const Text(
+                          'Close Inspector',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildModalRow(String label, String value, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.white54 : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.grey.shade900,
+            ),
+          ),
         ],
       ),
     );
@@ -637,19 +868,24 @@ class _VerificationScreenState extends State<VerificationScreen> {
             ),
           ),
           const SizedBox(height: 18),
-          ElevatedButton.icon(
-            onPressed: _pickAndVerifyNewPdf,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.warningColor,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              elevation: 1,
-            ),
-            icon: const Icon(Icons.file_upload_outlined, size: 20),
-            label: const Text(
-              'Select Genuine Signed PDF',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          BouncingTap(
+            onTap: _pickAndVerifyNewPdf,
+            child: ElevatedButton.icon(
+              onPressed: null, // handled by BouncingTap
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.warningColor,
+                foregroundColor: Colors.black,
+                disabledForegroundColor: Colors.black,
+                disabledBackgroundColor: AppTheme.warningColor,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                elevation: 1,
+              ),
+              icon: const Icon(Icons.file_upload_outlined, size: 20),
+              label: const Text(
+                'Select Genuine Signed PDF',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
             ),
           ),
         ],
@@ -659,8 +895,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   void _openPdfViewer(BuildContext context, {bool preferVerified = true}) {
     final verifiedPath = result['verifiedPdfPath'] as String?;
+    final cleanOriginalPath = result['originalCleanPdfPath'] as String?;
     final hasVerified = verifiedPath != null && File(verifiedPath).existsSync();
-    final String pathToShow = (preferVerified && hasVerified) ? verifiedPath : pdfPath;
+    final hasCleanOriginal = cleanOriginalPath != null && File(cleanOriginalPath).existsSync();
+    final effectiveOriginalPath = (hasCleanOriginal ? cleanOriginalPath : null) ?? pdfPath;
+    final String pathToShow = (preferVerified && hasVerified) ? verifiedPath : effectiveOriginalPath;
 
     Navigator.push(
       context,
@@ -668,10 +907,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
         builder: (context) => PdfViewerScreen(
           pdfPath: pathToShow,
           originalPdfPath: pdfPath,
+          originalCleanPdfPath: cleanOriginalPath,
           verifiedPdfPath: hasVerified ? verifiedPath : null,
           fileName: fileName,
           verificationResult: result,
           password: widget.password,
+          preferVerified: preferVerified,
         ),
       ),
     );
@@ -694,6 +935,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
             : 'file:///${file.path}';
 
         if (!mounted) return;
+        AdService.isOperationInProgress = true;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -752,6 +994,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
           ),
         );
       }
+    } finally {
+      AdService.isOperationInProgress = false;
     }
   }
 

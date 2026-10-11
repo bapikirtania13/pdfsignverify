@@ -39,7 +39,7 @@
         <!-- Google Mobile Ads (AdMob) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-1284309397637088~4645660237" />
         <!-- Disable Native Ad Validator popup overlay -->
         <meta-data
             android:name="com.google.android.gms.ads.flag.NATIVE_AD_DEBUGGER_ENABLED"
