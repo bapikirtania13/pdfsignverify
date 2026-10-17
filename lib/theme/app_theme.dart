@@ -25,7 +25,10 @@ class AppTheme {
   static const Color darkSurface = Color(0xFF161B22);
   static const Color darkSurfaceVariant = Color(0xFF21262D);
 
-  static ThemeData get lightTheme {
+  static final ThemeData lightTheme = _buildLightTheme();
+  static final ThemeData darkTheme = _buildDarkTheme();
+
+  static ThemeData _buildLightTheme() {
     final textTheme = GoogleFonts.interTextTheme();
     
     return ThemeData(
@@ -92,10 +95,14 @@ class AppTheme {
         thickness: 1,
         space: 0,
       ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
     );
   }
 
-  static ThemeData get darkTheme {
+  static ThemeData _buildDarkTheme() {
     final textTheme = GoogleFonts.interTextTheme(ThemeData.dark().textTheme);
     
     return ThemeData(
@@ -161,6 +168,10 @@ class AppTheme {
         color: Colors.grey.shade800,
         thickness: 1,
         space: 0,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }

@@ -10,6 +10,7 @@ import '../services/ad_service.dart';
 import '../widgets/app_banner_ad_widget.dart';
 import '../widgets/app_native_ad_widget.dart';
 import '../widgets/bouncing_tap.dart';
+import '../widgets/app_snack_bar.dart';
 import 'verification_screen.dart';
 
 class BatchPdfItem {
@@ -39,7 +40,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   String? _selectedFilePath;
   String? _selectedFileUri;
   String? _selectedFileName;
@@ -49,10 +51,83 @@ class _HomeScreenState extends State<HomeScreen> {
   List<BatchPdfItem> _batchItems = [];
   List<HistoryItem> _historyItems = [];
 
+  late AnimationController _animController;
+  late Animation<double> _logoFadeAnim;
+  late Animation<Offset> _logoSlideAnim;
+  late Animation<double> _headerFadeAnim;
+  late Animation<Offset> _headerSlideAnim;
+  late Animation<double> _buttonFadeAnim;
+  late Animation<Offset> _buttonSlideAnim;
+
   @override
   void initState() {
     super.initState();
     _loadHistory();
+    _initAnimations();
+  }
+
+  void _initAnimations() {
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+
+    // Staggered silky smooth curves using Interval
+    _logoFadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+      ),
+    );
+    _logoSlideAnim = Tween<Offset>(
+      begin: const Offset(0.0, -0.25),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.0, 0.65, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    _headerFadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.2, 0.75, curve: Curves.easeOut),
+      ),
+    );
+    _headerSlideAnim = Tween<Offset>(
+      begin: const Offset(0.0, 0.2),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.2, 0.85, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    _buttonFadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.35, 0.9, curve: Curves.easeOut),
+      ),
+    );
+    _buttonSlideAnim = Tween<Offset>(
+      begin: const Offset(0.0, 0.25),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animController,
+        curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    _animController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadHistory() async {
@@ -98,11 +173,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error selecting file: $e'),
-            backgroundColor: AppTheme.invalidColor,
-          ),
+        AppSnackBar.show(
+          context,
+          message: 'Error selecting file: $e',
+          backgroundColor: AppTheme.invalidColor,
+          duration: const Duration(seconds: 2),
         );
       }
     }
@@ -167,11 +242,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Verification error: $e'),
-            backgroundColor: AppTheme.invalidColor,
-          ),
+        AppSnackBar.show(
+          context,
+          message: 'Verification error: $e',
+          backgroundColor: AppTheme.invalidColor,
+          duration: const Duration(seconds: 2),
         );
       }
     } finally {
@@ -571,36 +646,41 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
                 child: Column(
                   children: [
-                    FadeInDown(
-                      duration: const Duration(milliseconds: 600),
-                      child: _buildLogoSection(isDark),
-                    ),
-                    const SizedBox(height: 24),
-                    FadeInUp(
-                      delay: const Duration(milliseconds: 200),
-                      duration: const Duration(milliseconds: 600),
-                      child: Text(
-                        'Verify PDF Digital Signature',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.white : AppTheme.primaryColor,
-                        ),
+                    FadeTransition(
+                      opacity: _logoFadeAnim,
+                      child: SlideTransition(
+                        position: _logoSlideAnim,
+                        child: _buildLogoSection(isDark),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    FadeInUp(
-                      delay: const Duration(milliseconds: 300),
-                      duration: const Duration(milliseconds: 600),
-                      child: Text(
-                        'Upload a PDF document to verify its digital signature',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: isDark
-                              ? Colors.white60
-                              : Colors.grey.shade600,
-                          height: 1.5,
+                    const SizedBox(height: 24),
+                    FadeTransition(
+                      opacity: _headerFadeAnim,
+                      child: SlideTransition(
+                        position: _headerSlideAnim,
+                        child: Column(
+                          children: [
+                            Text(
+                              'Verify PDF Digital Signature',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : AppTheme.primaryColor,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Upload a PDF document to verify its digital signature',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: isDark
+                                    ? Colors.white60
+                                    : Colors.grey.shade600,
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -616,10 +696,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 24),
 
                   // Select PDF button
-                  FadeInUp(
-                    delay: const Duration(milliseconds: 400),
-                    duration: const Duration(milliseconds: 600),
-                    child: _buildSelectPdfSection(isDark, colorScheme),
+                  FadeTransition(
+                    opacity: _buttonFadeAnim,
+                    child: SlideTransition(
+                      position: _buttonSlideAnim,
+                      child: _buildSelectPdfSection(isDark, colorScheme),
+                    ),
                   ),
 
                   // If multiple files selected: Batch Section
@@ -952,6 +1034,13 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () async {
                 await HistoryService.clearHistory();
                 _loadHistory();
+                if (mounted) {
+                  AppSnackBar.show(
+                    context,
+                    message: 'History cleared',
+                    duration: const Duration(seconds: 2),
+                  );
+                }
               },
               child: const Text('Clear All', style: TextStyle(fontSize: 12)),
             ),
@@ -1084,6 +1173,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Image.asset(
         'assets/icon/app_logo.png',
         fit: BoxFit.contain,
+        cacheWidth: 210,
+        cacheHeight: 210,
       ),
     );
   }
@@ -1295,8 +1386,10 @@ class _HomeScreenState extends State<HomeScreen> {
         await launchUrl(uri, mode: LaunchMode.platformDefault);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not open link: $e')),
+          AppSnackBar.show(
+            context,
+            message: 'Could not open link: $e',
+            duration: const Duration(seconds: 2),
           );
         }
       }

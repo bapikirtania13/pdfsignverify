@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'ad_service.dart';
+import '../widgets/app_snack_bar.dart';
 
 class PdfDownloadService {
   static const MethodChannel _platformChannel =
@@ -162,16 +163,15 @@ class PdfDownloadService {
 
                           if (context.mounted) {
                             if (saved) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Saved to Downloads: $name'),
-                                  backgroundColor: const Color(0xFF008A2A),
-                                  duration: const Duration(seconds: 1),
-                                  action: SnackBarAction(
-                                    label: 'Share',
-                                    textColor: Colors.white,
-                                    onPressed: () => sharePdf(filePath: verifiedPath, title: name),
-                                  ),
+                              AppSnackBar.show(
+                                context,
+                                content: Text('Saved to Downloads: $name'),
+                                backgroundColor: const Color(0xFF008A2A),
+                                duration: const Duration(seconds: 2),
+                                action: SnackBarAction(
+                                  label: 'Share',
+                                  textColor: Colors.white,
+                                  onPressed: () => sharePdf(filePath: verifiedPath, title: name),
                                 ),
                               );
                             } else {
@@ -206,16 +206,15 @@ class PdfDownloadService {
 
                     if (context.mounted) {
                       if (saved) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Saved to Downloads: $name'),
-                            backgroundColor: const Color(0xFF008A2A),
-                            duration: const Duration(seconds: 1),
-                            action: SnackBarAction(
-                              label: 'Share',
-                              textColor: Colors.white,
-                              onPressed: () => sharePdf(filePath: originalPath, title: name),
-                            ),
+                        AppSnackBar.show(
+                          context,
+                          content: Text('Saved to Downloads: $name'),
+                          backgroundColor: const Color(0xFF008A2A),
+                          duration: const Duration(seconds: 2),
+                          action: SnackBarAction(
+                            label: 'Share',
+                            textColor: Colors.white,
+                            onPressed: () => sharePdf(filePath: originalPath, title: name),
                           ),
                         );
                       } else {

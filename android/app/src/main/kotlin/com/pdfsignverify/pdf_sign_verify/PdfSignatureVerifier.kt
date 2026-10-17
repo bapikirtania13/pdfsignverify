@@ -190,7 +190,20 @@ class PdfSignatureVerifier(private val context: Context) {
                 result.put("isEncrypted", true)
                 result.put("error", if (password.isNullOrEmpty()) "This PDF is password protected. Please enter the password." else "Incorrect password. Please try again.")
             } else {
-                result.put("error", "Verification failed: ${e.message}")
+                val cleanMsg = when {
+                    e.message?.contains("startxref", ignoreCase = true) == true ||
+                    e.message?.contains("xref", ignoreCase = true) == true ||
+                    e.message?.contains("EOF", ignoreCase = true) == true ||
+                    e.message?.contains("trailer", ignoreCase = true) == true ->
+                        "This PDF file appears to be damaged, corrupted, or an incomplete download."
+                    e.message?.contains("header", ignoreCase = true) == true ||
+                    e.message?.contains("magic", ignoreCase = true) == true ->
+                        "The selected file is not a valid PDF document or was saved with an unsupported format."
+                    else ->
+                        "This PDF file has an unreadable or damaged structure and cannot be verified."
+                }
+                result.put("error", cleanMsg)
+                result.put("technicalError", e.message ?: "Unknown error")
                 result.put("status", "ERROR")
             }
         } finally {

@@ -41,7 +41,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   String _errorMessage = '';
   late String _currentDisplayPath;
   late bool _isShowingVerified;
-  int _rotationQuarterTurns = 0;
+  final int _rotationQuarterTurns = 0;
   String? _activePassword;
 
   String get _unverifiedDisplayPath {
@@ -224,19 +224,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             child: const IconButton(
               icon: Icon(Icons.download_rounded),
               tooltip: 'Download / Save PDF',
-              onPressed: null, // handled by BouncingTap
-            ),
-          ),
-          // Rotate Document button
-          BouncingTap(
-            onTap: () {
-              setState(() {
-                _rotationQuarterTurns = (_rotationQuarterTurns + 1) % 4;
-              });
-            },
-            child: const IconButton(
-              icon: Icon(Icons.rotate_right_rounded),
-              tooltip: 'Rotate Document',
               onPressed: null, // handled by BouncingTap
             ),
           ),

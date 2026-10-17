@@ -4,14 +4,13 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../services/ad_service.dart';
 import '../theme/app_theme.dart';
 
-/// Premium floating card banner ad widget matching the Pito Notes design.
+/// Premium floating card banner ad widget.
 ///
 /// Features:
 /// - Sleek, professional rounded card frame with ambient shadows and subtle borders.
 /// - Sits neatly at the bottom without taking up excessive screen or body space.
-/// - AdMob policy-compliant refresh rate to maximize legitimate viewability and eCPM.
-/// - Seamless background ad preloading and post-frame disposal to prevent UI flicker.
-/// - Pauses refresh on ad interaction (click / open) to give users seamless ad experience.
+/// - Lets Google AdMob's native SDK manage optimal refresh timing automatically
+///   ("Google optimized" in AdMob console), maximizing legitimate viewability and eCPM.
 /// - Resilient auto-retry on load failure so the banner reliably displays.
 class AppBannerAdWidget extends StatefulWidget {
   final String adUnitId;
@@ -25,59 +24,23 @@ class AppBannerAdWidget extends StatefulWidget {
   State<AppBannerAdWidget> createState() => _AppBannerAdWidgetState();
 }
 
-class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
-    with WidgetsBindingObserver {
+class _AppBannerAdWidgetState extends State<AppBannerAdWidget> {
   BannerAd? _bannerAd;
   bool _isLoaded = false;
-  Timer? _refreshTimer;
   Timer? _retryTimer;
-  bool _isRefreshing = false;
-  bool _isAdInteracted = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _loadInitialAd();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _isAdInteracted = false;
-      _scheduleNextRefresh();
-    } else {
-      _cancelTimers();
-    }
-  }
-
-  void _cancelTimers() {
-    _refreshTimer?.cancel();
-    _refreshTimer = null;
+  Future<void> _loadInitialAd() async {
     _retryTimer?.cancel();
-    _retryTimer = null;
-  }
-
-  void _scheduleNextRefresh() {
-    _refreshTimer?.cancel();
-    if (!mounted || _isAdInteracted) return;
-
-    _refreshTimer = Timer(AdService.bannerRefreshInterval, () {
-      if (mounted && !_isAdInteracted && !AdService.isOperationInProgress) {
-        final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-        if (!isCurrentRoute) {
-          // Route is not visible (covered by another screen); re-check later
-          _scheduleNextRefresh();
-          return;
-        }
-        _refreshAd();
-      }
-    });
-  }
-
-  void _loadInitialAd() {
-    _cancelTimers();
     _bannerAd?.dispose();
+
+    await AdService.waitForInit;
+    if (!mounted) return;
 
     _bannerAd = BannerAd(
       adUnitId: widget.adUnitId,
@@ -95,7 +58,6 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
             _bannerAd = ad as BannerAd;
             _isLoaded = true;
           });
-          _scheduleNextRefresh();
         },
         onAdFailedToLoad: (ad, err) {
           debugPrint('[AppBannerAd] Failed to load: ${err.message} (Code: ${err.code})');
@@ -105,7 +67,7 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
           // Retry after 5 seconds if not yet loaded
           _retryTimer?.cancel();
           _retryTimer = Timer(const Duration(seconds: 5), () {
-            if (mounted && !_isAdInteracted && _bannerAd == null) {
+            if (mounted && (_bannerAd == null || !_isLoaded)) {
               _loadInitialAd();
             }
           });
@@ -113,105 +75,13 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
         onAdImpression: (ad) {
           AdService.recordImpression('banner', widget.adUnitId);
         },
-        onAdClicked: (ad) {
-          debugPrint('[AppBannerAd] Ad clicked - pausing auto-refresh.');
-          _isAdInteracted = true;
-          _cancelTimers();
-        },
-        onAdOpened: (ad) {
-          debugPrint('[AppBannerAd] Ad opened - pausing auto-refresh.');
-          _isAdInteracted = true;
-          _cancelTimers();
-        },
-        onAdClosed: (ad) {
-          debugPrint('[AppBannerAd] Ad closed - resuming auto-refresh.');
-          _isAdInteracted = false;
-          _scheduleNextRefresh();
-        },
-        onAdWillDismissScreen: (ad) {
-          _isAdInteracted = false;
-          _scheduleNextRefresh();
-        },
       ),
     )..load();
   }
 
-  /// Seamlessly loads the next banner ad in the background before swapping
-  void _refreshAd() {
-    if (_isRefreshing || _isAdInteracted || !mounted || AdService.isOperationInProgress) return;
-    final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-    if (!isCurrentRoute) {
-      _scheduleNextRefresh();
-      return;
-    }
-    _isRefreshing = true;
-
-    BannerAd? nextBannerAd;
-    nextBannerAd = BannerAd(
-      adUnitId: widget.adUnitId,
-      request: const AdRequest(),
-      size: AdSize.banner,
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          _isRefreshing = false;
-          if (!mounted || _isAdInteracted) {
-            ad.dispose();
-            return;
-          }
-          AdService.recordLoadSuccess('banner');
-          final oldAd = _bannerAd;
-          setState(() {
-            _bannerAd = ad as BannerAd;
-            _isLoaded = true;
-          });
-          // Safely dispose old ad after next frame so Flutter has bound the new platform view
-          if (oldAd != null && oldAd != ad) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              oldAd.dispose();
-            });
-          }
-          _scheduleNextRefresh();
-        },
-        onAdFailedToLoad: (ad, err) {
-          _isRefreshing = false;
-          debugPrint('[AppBannerAd] Refresh failed: ${err.message}');
-          AdService.recordLoadFailure('banner', err);
-          ad.dispose();
-          // Keep current ad visible and schedule retry
-          _scheduleNextRefresh();
-        },
-        onAdImpression: (ad) {
-          AdService.recordImpression('banner', widget.adUnitId);
-        },
-        onAdClicked: (ad) {
-          debugPrint('[AppBannerAd] Ad clicked - pausing auto-refresh.');
-          _isAdInteracted = true;
-          _cancelTimers();
-        },
-        onAdOpened: (ad) {
-          debugPrint('[AppBannerAd] Ad opened - pausing auto-refresh.');
-          _isAdInteracted = true;
-          _cancelTimers();
-        },
-        onAdClosed: (ad) {
-          debugPrint('[AppBannerAd] Ad closed - resuming auto-refresh.');
-          _isAdInteracted = false;
-          _scheduleNextRefresh();
-        },
-        onAdWillDismissScreen: (ad) {
-          _isAdInteracted = false;
-          _scheduleNextRefresh();
-        },
-      ),
-    );
-
-    nextBannerAd.load();
-  }
-
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _cancelTimers();
+    _retryTimer?.cancel();
     _bannerAd?.dispose();
     super.dispose();
   }

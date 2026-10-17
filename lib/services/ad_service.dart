@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
@@ -7,6 +8,9 @@ class AdService {
   static const String verifyBannerId = 'ca-app-pub-1284309397637088/3675184336';
   static const String nativeAdId = 'ca-app-pub-1284309397637088/6609303586';
   static const String rewardedInterstitialId = 'ca-app-pub-1284309397637088/4693761691';
+
+  static final Completer<void> _initCompleter = Completer<void>();
+  static Future<void> get waitForInit => _initCompleter.isCompleted ? Future.value() : _initCompleter.future;
 
   /// Policy-compliant 35-second automatic refresh interval for banner ads
   /// (Strictly exceeds Google AdMob's minimum 30s requirement, maximizing eCPM & viewability)
@@ -63,8 +67,14 @@ class AdService {
   static Future<void> initialize() async {
     try {
       await MobileAds.instance.initialize();
+      if (!_initCompleter.isCompleted) {
+        _initCompleter.complete();
+      }
       loadRewardedInterstitial();
     } catch (e) {
+      if (!_initCompleter.isCompleted) {
+        _initCompleter.complete();
+      }
       debugPrint('AdService initialization error: $e');
     }
   }

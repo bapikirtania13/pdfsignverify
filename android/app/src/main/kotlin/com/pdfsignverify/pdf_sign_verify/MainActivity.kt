@@ -14,13 +14,11 @@ import android.util.Log
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.pdfsignverify/verification"
     private val TAG = "PdfSignVerify"
-    private lateinit var verifier: PdfSignatureVerifier
+    private var verifier: PdfSignatureVerifier? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
-        verifier = PdfSignatureVerifier(this)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -34,8 +32,11 @@ class MainActivity : FlutterActivity() {
                     
                     scope.launch {
                         try {
+                            if (verifier == null) {
+                                verifier = PdfSignatureVerifier(this@MainActivity)
+                            }
                             val uri = Uri.parse(uriString)
-                            val verificationResult = verifier.verifyPdf(uri, password)
+                            val verificationResult = verifier!!.verifyPdf(uri, password)
                             result.success(verificationResult.toString())
                         } catch (e: Exception) {
                             Log.e(TAG, "Verification failed", e)

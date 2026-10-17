@@ -8,12 +8,10 @@ import '../theme/app_theme.dart';
 ///
 /// Features:
 /// - Styled NativeTemplateStyle conforming to AppTheme (light and dark mode).
-/// - Policy-compliant 45-second refresh interval to maximize legitimate viewability and eCPM.
-/// - Seamless background loading: preloads the next ad in memory before swapping to eliminate flicker.
-/// - Lifecycle-aware: automatically pauses auto-refresh when the app is backgrounded.
-/// - Pauses during PDF verification/signing operations.
+/// - Loads once per screen visit with resilient auto-retry if initial load fails
+///   (e.g. WebView/JavascriptEngine warm-up delay or temporary network glitch).
 /// - Clear "Sponsored" badge that strictly distinguishes ads from core document features.
-/// - Smooth loading skeleton and graceful error collapse.
+/// - Graceful error collapse.
 class AppNativeAdWidget extends StatefulWidget {
   final String adUnitId;
 
@@ -26,66 +24,26 @@ class AppNativeAdWidget extends StatefulWidget {
   State<AppNativeAdWidget> createState() => _AppNativeAdWidgetState();
 }
 
-class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
-    with WidgetsBindingObserver {
-  NativeAd? _currentNativeAd;
-  NativeAd? _loadingNextNativeAd;
+class _AppNativeAdWidgetState extends State<AppNativeAdWidget> {
+  NativeAd? _nativeAd;
   bool _isLoaded = false;
-  Timer? _refreshTimer;
-  bool _isAppResumed = true;
+  bool _hasLoadedOnce = false;
+  Timer? _retryTimer;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _loadNativeAd();
-    _startAutoRefreshTimer();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    final resumed = (state == AppLifecycleState.resumed);
-    if (_isAppResumed != resumed) {
-      _isAppResumed = resumed;
-      if (_isAppResumed) {
-        _startAutoRefreshTimer();
-      } else {
-        _stopAutoRefreshTimer();
-      }
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasLoadedOnce) {
+      _hasLoadedOnce = true;
+      _loadNativeAd();
     }
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _stopAutoRefreshTimer();
-    _currentNativeAd?.dispose();
-    _loadingNextNativeAd?.dispose();
+    _retryTimer?.cancel();
+    _nativeAd?.dispose();
     super.dispose();
-  }
-
-  void _startAutoRefreshTimer() {
-    _stopAutoRefreshTimer();
-    if (!_isAppResumed || !mounted) return;
-
-    _refreshTimer = Timer.periodic(AdService.nativeRefreshInterval, (_) {
-      if (!mounted) return;
-      if (!_isAppResumed || AdService.isOperationInProgress) return;
-      final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-      if (!isCurrentRoute) return; // Do not reload native ad while screen is obscured
-
-      if (_currentNativeAd == null) {
-        _loadNativeAd();
-      } else {
-        _refreshNativeAd();
-      }
-    });
-  }
-
-  void _stopAutoRefreshTimer() {
-    _refreshTimer?.cancel();
-    _refreshTimer = null;
   }
 
   NativeTemplateStyle _buildNativeStyle(bool isDark) {
@@ -117,9 +75,14 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
     );
   }
 
-  void _loadNativeAd() {
+  Future<void> _loadNativeAd() async {
     if (!mounted) return;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    _retryTimer?.cancel();
+
+    await AdService.waitForInit;
+    if (!mounted) return;
 
     final nativeAd = NativeAd(
       adUnitId: widget.adUnitId,
@@ -127,22 +90,30 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
       nativeTemplateStyle: _buildNativeStyle(isDark),
       listener: NativeAdListener(
         onAdLoaded: (ad) {
+          debugPrint('[AppNativeAd] Native ad loaded successfully: $ad');
           if (!mounted) {
             ad.dispose();
             return;
           }
           AdService.recordLoadSuccess('native');
           setState(() {
-            _currentNativeAd?.dispose();
-            _currentNativeAd = ad as NativeAd;
+            _nativeAd?.dispose();
+            _nativeAd = ad as NativeAd;
             _isLoaded = true;
           });
-          _startAutoRefreshTimer();
         },
         onAdFailedToLoad: (ad, error) {
-          debugPrint('[AppNativeAd] Failed to load: ${error.message}');
+          debugPrint('[AppNativeAd] Failed to load: ${error.message} (Code: ${error.code})');
           AdService.recordLoadFailure('native', error);
           ad.dispose();
+          if (!mounted) return;
+          // Auto-retry after 5 seconds if not yet loaded (e.g. WebView warm-up delay)
+          _retryTimer?.cancel();
+          _retryTimer = Timer(const Duration(seconds: 5), () {
+            if (mounted && _nativeAd == null) {
+              _loadNativeAd();
+            }
+          });
         },
         onAdImpression: (ad) {
           AdService.recordImpression('native', widget.adUnitId);
@@ -153,47 +124,9 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
     nativeAd.load();
   }
 
-  void _refreshNativeAd() {
-    if (_loadingNextNativeAd != null || !mounted) return;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    _loadingNextNativeAd = NativeAd(
-      adUnitId: widget.adUnitId,
-      request: const AdRequest(),
-      nativeTemplateStyle: _buildNativeStyle(isDark),
-      listener: NativeAdListener(
-        onAdLoaded: (newAd) {
-          if (!mounted) {
-            newAd.dispose();
-            return;
-          }
-          AdService.recordLoadSuccess('native');
-          final oldAd = _currentNativeAd;
-          setState(() {
-            _currentNativeAd = newAd as NativeAd;
-            _loadingNextNativeAd = null;
-            _isLoaded = true;
-          });
-          oldAd?.dispose();
-        },
-        onAdFailedToLoad: (ad, error) {
-          debugPrint('[AppNativeAd] Refresh failed: ${error.message}');
-          AdService.recordLoadFailure('native', error);
-          ad.dispose();
-          _loadingNextNativeAd = null;
-        },
-        onAdImpression: (ad) {
-          AdService.recordImpression('native', widget.adUnitId);
-        },
-      ),
-    );
-
-    _loadingNextNativeAd!.load();
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (!_isLoaded || _currentNativeAd == null) {
+    if (!_isLoaded || _nativeAd == null) {
       return const SizedBox.shrink();
     }
 
@@ -267,16 +200,25 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
               ],
             ),
           ),
-          // Native Ad Content
-          ClipRRect(
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(14),
-              bottomRight: Radius.circular(14),
-            ),
-            child: SizedBox(
-              height: 96,
-              child: AdWidget(ad: _currentNativeAd!),
-            ),
+          // Native Ad Content (height: 110 for optimal small template rendering)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final adWidth = constraints.maxWidth > 0 ? constraints.maxWidth : MediaQuery.of(context).size.width - 32;
+              return ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(14),
+                  bottomRight: Radius.circular(14),
+                ),
+                child: SizedBox(
+                  width: adWidth,
+                  height: 110,
+                  child: AdWidget(
+                    key: ValueKey(_nativeAd.hashCode),
+                    ad: _nativeAd!,
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),

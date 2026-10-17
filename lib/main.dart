@@ -1,19 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'screens/splash_screen.dart';
+import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
-
 import 'services/ad_service.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Launch UI immediately on frame 1 - zero black screen waiting
+  runApp(const PdfSignVerifyApp());
+
+  // Initialize Firebase and AdService concurrently in the background
+  _initServices();
+}
+
+Future<void> _initServices() async {
   try {
     await Firebase.initializeApp();
   } catch (e) {
     debugPrint('Firebase initialization error: $e');
   }
   await AdService.initialize();
-  runApp(const PdfSignVerifyApp());
 }
 
 class PdfSignVerifyApp extends StatelessWidget {
@@ -27,7 +33,7 @@ class PdfSignVerifyApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const SplashScreen(),
+      home: const HomeScreen(),
     );
   }
 }

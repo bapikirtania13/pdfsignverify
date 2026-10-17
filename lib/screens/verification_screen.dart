@@ -13,6 +13,7 @@ import '../widgets/app_native_ad_widget.dart';
 import 'pdf_viewer_screen.dart';
 import '../widgets/signature_card.dart';
 import '../widgets/bouncing_tap.dart';
+import '../widgets/app_snack_bar.dart';
 
 class VerificationScreen extends StatefulWidget {
   final Map<String, dynamic> result;
@@ -91,6 +92,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     const SizedBox(height: 20),
                   ],
 
+                  // 3b. When PDF could not be read / corrupted: Clear explanation
+                  if (status == 'ERROR') ...[
+                    FadeInUp(
+                      delay: const Duration(milliseconds: 250),
+                      duration: const Duration(milliseconds: 400),
+                      child: _buildErrorGuidanceCard(context, isDark),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
                   // 4. When signatures exist: Simplified Important Details
                   if (signatures.isNotEmpty) ...[
                     FadeInUp(
@@ -152,9 +163,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
         break;
       case 'ERROR':
         bannerColor = AppTheme.invalidColor;
-        bannerIcon = Icons.error_rounded;
-        bannerTitle = 'Verification Error';
-        bannerSubtitle = result['error'] as String? ?? 'An error occurred';
+        bannerIcon = Icons.error_outline_rounded;
+        bannerTitle = 'Unable to Read PDF File';
+        bannerSubtitle = _getReadableErrorMessage(result['error'] as String?);
         break;
       default:
         bannerColor = AppTheme.unknownColor;
@@ -210,11 +221,28 @@ class _VerificationScreenState extends State<VerificationScreen> {
     );
   }
 
+  String _getReadableErrorMessage(String? rawError) {
+    if (rawError == null || rawError.isEmpty) {
+      return 'This file is damaged or saved in an unsupported format.';
+    }
+    final lower = rawError.toLowerCase();
+    if (lower.contains('password') || lower.contains('encrypt')) {
+      return 'This document is protected with a password or encrypted permissions.';
+    }
+    if (lower.contains('startxref') || lower.contains('xref') || lower.contains('eof') || lower.contains('corrupt') || lower.contains('incomplete')) {
+      return 'This PDF file appears to be damaged, corrupted, or an incomplete download.';
+    }
+    if (lower.contains('not a valid pdf') || lower.contains('magic') || lower.contains('format')) {
+      return 'The selected file is not a valid PDF or has an unsupported format.';
+    }
+    return rawError;
+  }
+
   Widget _buildActionButtons(BuildContext context, bool isDark, String status) {
     final verifiedPath = result['verifiedPdfPath'] as String?;
     final hasVerified = verifiedPath != null && File(verifiedPath).existsSync();
 
-    if (status == 'NO_SIGNATURES') {
+    if (status == 'NO_SIGNATURES' || status == 'ERROR') {
       return Column(
         children: [
           BouncingTap(
@@ -233,9 +261,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   elevation: 2,
                 ),
                 icon: const Icon(Icons.upload_file_rounded, size: 22),
-                label: const Text(
-                  'Upload Digitally Signed PDF',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                label: Text(
+                  status == 'ERROR' ? 'Upload Another PDF' : 'Upload Digitally Signed PDF',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),
             ),
@@ -249,7 +277,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
               child: OutlinedButton.icon(
                 onPressed: null, // handled by BouncingTap
                 icon: const Icon(Icons.visibility_rounded, size: 20),
-                label: const Text('View Uploaded Document'),
+                label: Text(status == 'ERROR' ? 'Try Viewing File' : 'View Uploaded Document'),
                 style: OutlinedButton.styleFrom(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -647,11 +675,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
                                 tooltip: 'Copy Fingerprint',
                                 onPressed: () {
                                   Clipboard.setData(ClipboardData(text: thumbprint));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Fingerprint copied to clipboard'),
-                                      duration: Duration(seconds: 1),
-                                    ),
+                                  AppSnackBar.show(
+                                    context,
+                                    message: 'Fingerprint copied to clipboard',
+                                    duration: const Duration(seconds: 2),
                                   );
                                 },
                               ),
@@ -893,6 +920,76 @@ class _VerificationScreenState extends State<VerificationScreen> {
     );
   }
 
+  Widget _buildErrorGuidanceCard(BuildContext context, bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppTheme.invalidColor.withValues(alpha: 0.1)
+            : AppTheme.invalidColor.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppTheme.invalidColor.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.broken_image_outlined,
+            size: 48,
+            color: AppTheme.invalidColor,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Document Could Not Be Inspected',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : Colors.grey.shade900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'The verification engine could not read this PDF structure. '
+            'Common reasons include:\n\n'
+            '• The file is damaged, corrupted, or download was interrupted.\n'
+            '• The document was created using a non-standard scanner or converter.\n'
+            '• The file is an image or web page renamed to .pdf.\n\n'
+            'Please download a fresh original copy of the PDF and try again.',
+            textAlign: TextAlign.start,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: isDark ? Colors.white70 : Colors.grey.shade700,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 18),
+          BouncingTap(
+            onTap: _pickAndVerifyNewPdf,
+            child: ElevatedButton.icon(
+              onPressed: null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.invalidColor,
+                foregroundColor: Colors.white,
+                disabledForegroundColor: Colors.white,
+                disabledBackgroundColor: AppTheme.invalidColor,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.file_upload_outlined, size: 20),
+              label: const Text(
+                'Upload Another PDF',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openPdfViewer(BuildContext context, {bool preferVerified = true}) {
     final verifiedPath = result['verifiedPdfPath'] as String?;
     final cleanOriginalPath = result['originalCleanPdfPath'] as String?;
@@ -987,11 +1084,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppTheme.invalidColor,
-          ),
+        AppSnackBar.show(
+          context,
+          message: 'Error: $e',
+          backgroundColor: AppTheme.invalidColor,
+          duration: const Duration(seconds: 2),
         );
       }
     } finally {
@@ -1019,25 +1116,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
     try {
       final reportPath = await ReportService.generateReport(result);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Report generated'),
-            duration: const Duration(seconds: 1),
-            action: SnackBarAction(
-              label: 'Share',
-              onPressed: () => ReportService.shareReport(reportPath),
-            ),
+        AppSnackBar.show(
+          context,
+          content: const Text('Report generated'),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'Share',
+            textColor: Colors.white,
+            onPressed: () => ReportService.shareReport(reportPath),
           ),
         );
         await ReportService.shareReport(reportPath);
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error generating report: $e'),
-            backgroundColor: AppTheme.invalidColor,
-          ),
+        AppSnackBar.show(
+          context,
+          message: 'Error generating report: $e',
+          backgroundColor: AppTheme.invalidColor,
+          duration: const Duration(seconds: 2),
         );
       }
     }
