@@ -1,24 +1,58 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class AdService {
-  // Provided Ad Unit IDs
+  // Production Ad Unit IDs
   static const String homeBannerId = 'ca-app-pub-1284309397637088/6361057428';
   static const String verifyBannerId = 'ca-app-pub-1284309397637088/3675184336';
   static const String nativeAdId = 'ca-app-pub-1284309397637088/6609303586';
   static const String rewardedInterstitialId = 'ca-app-pub-1284309397637088/4693761691';
 
+  // Official Google AdMob Test Ad Unit IDs (used as fallback in debug mode only)
+  static const String testBannerId = 'ca-app-pub-3940256099942544/6300978111';
+  static const String testNativeId = 'ca-app-pub-3940256099942544/2247696110';
+  static const String testRewardedInterstitialId = 'ca-app-pub-3940256099942544/5354046379';
+
   static final Completer<void> _initCompleter = Completer<void>();
   static Future<void> get waitForInit => _initCompleter.isCompleted ? Future.value() : _initCompleter.future;
 
-  /// Policy-compliant 35-second automatic refresh interval for banner ads
-  /// (Strictly exceeds Google AdMob's minimum 30s requirement, maximizing eCPM & viewability)
-  static const Duration bannerRefreshInterval = Duration(seconds: 35);
+  /// Policy-compliant 45-second automatic refresh interval for banner ads
+  /// (Strictly complies with Google AdMob minimum 30s requirement, maximizing eCPM & viewability)
+  static const Duration bannerRefreshInterval = Duration(seconds: 45);
 
-  /// Policy-compliant 45-second automatic refresh interval for native ads
-  /// (Eliminates layout shifts and preserves optimal viewability)
-  static const Duration nativeRefreshInterval = Duration(seconds: 45);
+  /// Retry interval when an ad fails to load (no fill / network glitch)
+  static const Duration retryInterval = Duration(seconds: 45);
+
+  /// Native ad freshness TTL (90s window like Crypto-Test, prevents rapid timer flipping)
+  static const Duration nativeCacheTtl = Duration(seconds: 90);
+
+  /// Contextual keywords for document signing & verification ads
+  static const List<String> contextualKeywords = [
+    'pdf',
+    'document',
+    'signature',
+    'digital signature',
+    'verify',
+    'security',
+    'certificate',
+    'cryptography',
+    'signer',
+    'pki',
+  ];
+
+  /// Checks if the device has an active network connection and reachability to the internet.
+  static Future<bool> hasInternetConnection() async {
+    try {
+      final lookup = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 3));
+      return lookup.isNotEmpty && lookup[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Global flag to pause ad refresh during critical user flows
   /// (e.g. PDF cryptographic verification, signing, report generation)
