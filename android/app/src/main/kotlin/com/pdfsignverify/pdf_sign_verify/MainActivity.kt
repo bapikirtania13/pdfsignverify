@@ -49,7 +49,7 @@ class MainActivity : FlutterActivity() {
                         val pInfo = packageManager.getPackageInfo(packageName, 0)
                         result.success(pInfo.versionName)
                     } catch (e: Exception) {
-                        result.success("1.0.4")
+                        result.success("1.0.5")
                     }
                 }
                 "savePdfToDownloads" -> {

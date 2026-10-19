@@ -14,12 +14,13 @@ void main() {
 }
 
 Future<void> _initServices() async {
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization error: $e');
-  }
-  await AdService.initialize();
+  await Future.wait([
+    Firebase.initializeApp().catchError((e) {
+      debugPrint('Firebase initialization error: $e');
+      return Firebase.app();
+    }),
+    AdService.initialize(),
+  ]);
 }
 
 class PdfSignVerifyApp extends StatelessWidget {

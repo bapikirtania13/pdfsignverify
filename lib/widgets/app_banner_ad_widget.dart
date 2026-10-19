@@ -107,6 +107,7 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
         return;
       }
 
+      _usingFallback = false;
       _loadAd(widget.adUnitId);
     });
   }
@@ -152,11 +153,12 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
           );
           AdService.recordLoadFailure('banner', err);
 
-          // In debug mode, allow falling back to test banner if target was not already the test ID
+          // NEVER show test ads in release mode. Only in debug mode can test ad fallback be used.
           if (kDebugMode &&
               !_usingFallback &&
               targetAdUnitId != AdService.testBannerId) {
             _usingFallback = true;
+            debugPrint('[AppBannerAd] Debug mode: falling back to test banner...');
             Future.microtask(() {
               if (mounted) _loadAd(AdService.testBannerId);
             });

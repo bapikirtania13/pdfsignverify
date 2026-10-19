@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class AdService {
@@ -29,18 +28,19 @@ class AdService {
   /// Native ad freshness TTL (90s window like Crypto-Test, prevents rapid timer flipping)
   static const Duration nativeCacheTtl = Duration(seconds: 90);
 
-  /// Contextual keywords for document signing & verification ads
+  /// High-inventory contextual keywords to maximize AdMob advertiser fill rate
   static const List<String> contextualKeywords = [
     'pdf',
     'document',
-    'signature',
-    'digital signature',
-    'verify',
+    'scanner',
+    'tools',
+    'business',
+    'office',
+    'productivity',
+    'utilities',
+    'finance',
     'security',
-    'certificate',
-    'cryptography',
-    'signer',
-    'pki',
+    'digital signature',
   ];
 
   /// Checks if the device has an active network connection and reachability to the internet.
@@ -113,25 +113,40 @@ class AdService {
     }
   }
 
-  /// Preload Rewarded Interstitial Ad
+  /// Preload Rewarded Interstitial Ad with automatic fallback to test unit if production is unfilled
   static void loadRewardedInterstitial() {
     if (_rewardedInterstitialAd != null || _isLoadingRewarded) return;
     _isLoadingRewarded = true;
 
+    final targetUnitId = kDebugMode ? testRewardedInterstitialId : rewardedInterstitialId;
+    _loadRewardedInterstitialWithFallback(targetUnitId);
+  }
+
+  static void _loadRewardedInterstitialWithFallback(String targetUnitId) {
     RewardedInterstitialAd.load(
-      adUnitId: rewardedInterstitialId,
-      request: const AdRequest(),
+      adUnitId: targetUnitId,
+      request: const AdRequest(keywords: contextualKeywords),
       rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _rewardedInterstitialAd = ad;
           _isLoadingRewarded = false;
           _rewardedRetryCount = 0;
-          debugPrint('[AdService] Rewarded interstitial preloaded successfully.');
+          debugPrint('[AdService] Rewarded interstitial preloaded successfully ($targetUnitId).');
         },
         onAdFailedToLoad: (error) {
-          debugPrint('RewardedInterstitialAd failed to load: ${error.message}');
+          debugPrint(
+            'RewardedInterstitialAd failed to load ($targetUnitId): ${error.message} (code ${error.code})',
+          );
           _rewardedInterstitialAd = null;
           _isLoadingRewarded = false;
+
+          // NEVER show test ads in release mode. Only in debug mode can test ad fallback be used.
+          if (kDebugMode && targetUnitId != testRewardedInterstitialId) {
+            debugPrint('[AdService] Debug mode: falling back to test rewarded interstitial ad...');
+            _loadRewardedInterstitialWithFallback(testRewardedInterstitialId);
+            return;
+          }
+
           // Retry up to 3 times with exponential delay
           if (_rewardedRetryCount < 3) {
             _rewardedRetryCount++;

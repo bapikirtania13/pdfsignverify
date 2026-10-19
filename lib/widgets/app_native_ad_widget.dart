@@ -171,11 +171,12 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
           );
           AdService.recordLoadFailure('native', error);
 
-          // In debug mode, allow falling back to official Google test native ad unit
+          // NEVER show test ads in release mode. Only in debug mode can test ad fallback be used.
           if (kDebugMode &&
               !_usingFallback &&
               targetAdUnitId != AdService.testNativeId) {
             _usingFallback = true;
+            debugPrint('[AppNativeAd] Debug mode: falling back to test native ad...');
             Future.microtask(() {
               if (mounted) _loadNativeAd(AdService.testNativeId);
             });
@@ -220,106 +221,44 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
   Widget build(BuildContext context) {
     super.build(context);
 
+    // If genuinely no ad is loaded, the ad space is completely empty
     if (!_isAdLoaded || _nativeAd == null) {
       return const SizedBox.shrink();
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    const adHeight = 96.0;
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 300),
       opacity: _isAdLoaded ? 1.0 : 0.0,
       child: Container(
-        width: double.infinity,
-        margin: widget.margin ?? const EdgeInsets.symmetric(vertical: 4),
+        margin: widget.margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkSurface : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isDark
                 ? Colors.white.withValues(alpha: 0.12)
                 : Colors.grey.shade200,
-            width: 1.2,
+            width: 1.0,
           ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Ad Badge Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.campaign_rounded,
-                          size: 12,
-                          color: AppTheme.primaryColor,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Sponsored',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
-                            color: AppTheme.primaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    'Ad',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white38 : Colors.grey.shade500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Native Ad Content (height: 110 for small template)
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final adWidth = constraints.maxWidth > 0
-                    ? constraints.maxWidth
-                    : MediaQuery.of(context).size.width - 32;
-                return ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(14),
-                    bottomRight: Radius.circular(14),
-                  ),
-                  child: SizedBox(
-                    width: adWidth,
-                    height: 110,
-                    child: AdWidget(
-                      key: ValueKey(_nativeAd.hashCode),
-                      ad: _nativeAd!,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          height: adHeight,
+          width: double.infinity,
+          child: AdWidget(
+            key: ValueKey(_nativeAd.hashCode),
+            ad: _nativeAd!,
+          ),
         ),
       ),
     );
