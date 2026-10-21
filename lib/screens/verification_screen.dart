@@ -135,8 +135,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
     IconData bannerIcon;
     String bannerTitle;
     String bannerSubtitle;
+    final sigs = (result['signatures'] as List<dynamic>?) ?? [];
+    final hasIntactCryptographicSigs = sigs.isNotEmpty && sigs.every((s) {
+      if (s is! Map<String, dynamic>) return false;
+      return (s['signatureIntegrity'] == true) &&
+             (s['documentIntegrity'] == true) &&
+             (s['status'] != 'INVALID');
+    });
 
-    switch (status) {
+    final effectiveStatus = (status == 'WARNING' && hasIntactCryptographicSigs) ? 'VALID' : status;
+
+    switch (effectiveStatus) {
       case 'VALID':
         bannerColor = const Color(0xFF008A2A);
         bannerIcon = Icons.check_circle_rounded;

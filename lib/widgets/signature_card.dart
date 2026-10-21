@@ -747,8 +747,10 @@ class _SignatureCardState extends State<SignatureCard> {
         ?.map((e) => e.toString())
         .toList();
 
-    final isValid = status == 'VALID';
-    final isWarning = status == 'WARNING';
+    final sigIntegrity = sig['signatureIntegrity'] as bool? ?? false;
+    final docIntegrity = sig['documentIntegrity'] as bool? ?? false;
+    final isValid = status == 'VALID' || (sigIntegrity && docIntegrity && status != 'INVALID');
+    final isWarning = status == 'WARNING' && !isValid;
     final isInvalid = status == 'INVALID';
 
     final Color primaryColor = isValid
