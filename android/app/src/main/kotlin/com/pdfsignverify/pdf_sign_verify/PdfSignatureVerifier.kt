@@ -1291,7 +1291,7 @@ class PdfSignatureVerifier(private val context: Context) {
                     val tickW: Float
                     val tickH: Float
 
-                    val tickAspectRatio = tickData?.let { it.width / it.height } ?: (1022.0f / 1024.0f)
+                    val tickAspectRatio = 739.0f / 652.0f
 
                     if (exactN1Rect != null) {
                         // The question mark (/n1) form has bounding box exactN1Rect (e.g. 67.5 x 67.5).
@@ -1509,7 +1509,9 @@ class PdfSignatureVerifier(private val context: Context) {
                 val topMargin = maxOf((boxH - totalBlockHeight) * 0.5f, 2.0f)
                 val textX = boxX + maxOf(boxW * 0.04f, 2.0f)
 
-                val tickAspectRatio = tickData?.let { it.width / it.height } ?: (1022.0f / 1024.0f)
+                // Dynamic tick dimensions and positioning (exact middle of signature box)
+                // Ratio is 739 / 652 = 1.1334
+                val tickAspectRatio = 739.0f / 652.0f
                 val tickH = if (boxW >= 85f) minOf(boxH * 0.60f, 34.0f) else minOf(boxH * 0.70f, 26.0f)
                 val tickW = tickH * tickAspectRatio
 
@@ -1760,9 +1762,6 @@ class PdfSignatureVerifier(private val context: Context) {
 
     private fun loadTickImageData(): com.itextpdf.io.image.ImageData? {
         val assetPaths = listOf(
-            "green_tick.png",
-            "flutter_assets/assets/images/green_tick.png",
-            "assets/images/green_tick.png",
             "adobe_green_tick.png",
             "flutter_assets/assets/images/adobe_green_tick.png",
             "assets/images/adobe_green_tick.png"
