@@ -808,7 +808,7 @@ class _SignatureCardState extends State<SignatureCard> {
                 margin: const EdgeInsets.only(top: 2),
                 child: isValid
                     ? Image.asset(
-                        'assets/images/adobe_green_tick.png',
+                        'assets/images/green_tick.png',
                         width: 32,
                         height: 32,
                         fit: BoxFit.contain,
