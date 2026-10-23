@@ -1294,14 +1294,14 @@ class PdfSignatureVerifier(private val context: Context) {
                     val tickAspectRatio = 739.0f / 652.0f
 
                     if (exactN1Rect != null) {
-                        // Increase green tick scale to make it substantially bigger and prominent
-                        val scale = 0.95f
+                        // Perfectly balanced tick scale (0.80f)
+                        val scale = 0.80f
                         tickH = exactN1Rect.height * scale
                         tickW = tickH * tickAspectRatio
                         tickX = exactN1Rect.x + (exactN1Rect.width - tickW) * 0.5f
                         tickY = exactN1Rect.y + (exactN1Rect.height - tickH) * 0.5f
                     } else {
-                        tickH = minOf(boxH * 0.82f, 48.0f)
+                        tickH = minOf(boxH * 0.70f, 38.0f)
                         tickW = tickH * tickAspectRatio
                         tickX = boxX + (boxW - tickW) * 0.5f
                         tickY = boxY + (boxH - tickH) * 0.5f
@@ -1510,7 +1510,7 @@ class PdfSignatureVerifier(private val context: Context) {
                 // Dynamic tick dimensions and positioning (exact middle of signature box)
                 // Ratio is 739 / 652 = 1.1334
                 val tickAspectRatio = 739.0f / 652.0f
-                val tickH = if (boxW >= 85f) minOf(boxH * 0.82f, 48.0f) else minOf(boxH * 0.88f, 36.0f)
+                val tickH = if (boxW >= 85f) minOf(boxH * 0.70f, 38.0f) else minOf(boxH * 0.78f, 29.0f)
                 val tickW = tickH * tickAspectRatio
 
                 // Placed in the exact middle of the signature area
