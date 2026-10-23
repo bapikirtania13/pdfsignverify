@@ -893,7 +893,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
           Text(
             'The uploaded document does not contain an electronic digital signature. '
             'It may be an unsigned file or a scanned copy.\n\n'
-            'To view your PDF with an official green checkmark and "Signature valid", '
+            'To view your PDF with an official green checkmark and "Signature Valid", '
             'please upload a genuine digitally signed PDF (e.g. government certificates, '
             'e-District documents, or signed contracts).',
             textAlign: TextAlign.center,

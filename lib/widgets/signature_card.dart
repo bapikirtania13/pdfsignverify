@@ -760,7 +760,7 @@ class _SignatureCardState extends State<SignatureCard> {
             : const Color(0xFFD32F2F);
 
     final String statusText = isValid
-        ? 'Signature valid'
+        ? 'Signature Valid'
         : isWarning
             ? 'Signature has warnings'
             : isInvalid

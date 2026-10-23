@@ -1,7 +1,7 @@
 name: pdf_sign_verify
 description: "PDF Sign Verify - Real cryptographic PDF digital signature verification"
 publish_to: 'none'
-version: 1.0.6+6
+version: 1.0.7+7
 
 environment:
   sdk: ^3.13.1

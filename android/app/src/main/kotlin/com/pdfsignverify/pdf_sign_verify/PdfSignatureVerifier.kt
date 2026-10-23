@@ -1572,10 +1572,10 @@ class PdfSignatureVerifier(private val context: Context) {
 
                 var currentY = boxY + boxH - topMargin - (headingFontSize * 0.82f)
 
-                // Line 1: Signature valid (bold)
+                // Line 1: Signature Valid (bold)
                 canvas.setFontAndSize(boldFont, headingFontSize)
                 canvas.setTextMatrix(textX, currentY)
-                canvas.showText("Signature valid")
+                canvas.showText("Signature Valid")
 
                 // Line 2: Signer line(s) - "Digitally signed by" non-bold/italic, signer name BOLD!
                 for (line in finalSignerLines) {
@@ -1740,14 +1740,14 @@ class PdfSignatureVerifier(private val context: Context) {
             )
             for (target in targets) {
                 if (s.contains(target)) {
-                    s = s.replace(target, "Signature valid")
+                    s = s.replace(target, "Signature Valid")
                     textModified = true
                 }
             }
             if (!textModified) {
                 val statusRegex = Regex("""(?i)signature\s+not\s+verified|validity\s+unknown|signature\s+unknown|invalid\s+signature|signature\s+invalid""")
                 if (statusRegex.containsMatchIn(s)) {
-                    s = statusRegex.replace(s, "Signature valid")
+                    s = statusRegex.replace(s, "Signature Valid")
                     textModified = true
                 }
             }
