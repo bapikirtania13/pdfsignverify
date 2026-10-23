@@ -809,8 +809,8 @@ class _SignatureCardState extends State<SignatureCard> {
                 child: isValid
                     ? Image.asset(
                         'assets/images/adobe_green_tick.png',
-                        width: 32,
-                        height: 32,
+                        width: 36,
+                        height: 36,
                         fit: BoxFit.contain,
                       )
                     : Container(
@@ -837,7 +837,7 @@ class _SignatureCardState extends State<SignatureCard> {
                     Text(
                       statusText,
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 17.5,
                         fontWeight: FontWeight.w800,
                         color: primaryColor,
                         letterSpacing: 0.2,

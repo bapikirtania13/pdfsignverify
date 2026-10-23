@@ -1491,8 +1491,8 @@ class PdfSignatureVerifier(private val context: Context) {
                 val finalMetaLines = wrapList(rawMetaLines)
 
                 // Typography sizing matching original PDF appearance
-                val headingFontSize = minOf(maxOf(boxH * 0.17f, 6.5f), 8.8f)
-                val bodyFontSize = minOf(maxOf(headingFontSize * 0.82f, 5.2f), 6.8f)
+                val headingFontSize = minOf(maxOf(boxH * 0.20f, 7.5f), 10.2f)
+                val bodyFontSize = minOf(maxOf(headingFontSize * 0.78f, 5.2f), 6.8f)
                 val normalLineHeight = bodyFontSize * 1.22f
 
                 // Gap between the two groups (between Line 2 and Line 3)
@@ -1512,7 +1512,7 @@ class PdfSignatureVerifier(private val context: Context) {
                 // Dynamic tick dimensions and positioning (exact middle of signature box)
                 // Ratio is 739 / 652 = 1.1334
                 val tickAspectRatio = 739.0f / 652.0f
-                val tickH = if (boxW >= 85f) minOf(boxH * 0.60f, 34.0f) else minOf(boxH * 0.70f, 26.0f)
+                val tickH = if (boxW >= 85f) minOf(boxH * 0.72f, 40.0f) else minOf(boxH * 0.80f, 30.0f)
                 val tickW = tickH * tickAspectRatio
 
                 // Placed in the exact middle of the signature area
