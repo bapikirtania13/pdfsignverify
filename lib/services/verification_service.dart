@@ -39,7 +39,7 @@ class VerificationService {
       final String version = await _channel.invokeMethod('getAppVersion');
       return version;
     } catch (e) {
-      return '1.0.7';
+      return '1.0.8';
     }
   }
 }
