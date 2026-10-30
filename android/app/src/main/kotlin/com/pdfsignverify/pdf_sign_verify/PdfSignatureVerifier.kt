@@ -1291,7 +1291,7 @@ class PdfSignatureVerifier(private val context: Context) {
                     val tickW: Float
                     val tickH: Float
 
-                    val tickAspectRatio = 739.0f / 652.0f
+                    val tickAspectRatio = loadTickImageData()?.let { if (it.height > 0) it.width / it.height else null } ?: (736.0f / 761.0f)
 
                     if (exactN1Rect != null) {
                         // Perfectly balanced tick scale (0.80f)
@@ -1507,9 +1507,7 @@ class PdfSignatureVerifier(private val context: Context) {
                 val topMargin = maxOf((boxH - totalBlockHeight) * 0.5f, 2.0f)
                 val textX = boxX + maxOf(boxW * 0.04f, 2.0f)
 
-                // Dynamic tick dimensions and positioning (exact middle of signature box)
-                // Ratio is 739 / 652 = 1.1334
-                val tickAspectRatio = 739.0f / 652.0f
+                val tickAspectRatio = loadTickImageData()?.let { if (it.height > 0) it.width / it.height else null } ?: (736.0f / 761.0f)
                 val tickH = if (boxW >= 85f) minOf(boxH * 0.70f, 38.0f) else minOf(boxH * 0.78f, 29.0f)
                 val tickW = tickH * tickAspectRatio
 
@@ -1769,7 +1767,11 @@ class PdfSignatureVerifier(private val context: Context) {
         return Pair(modified, n1Modified)
     }
 
+    @Volatile
+    private var cachedTickImageData: com.itextpdf.io.image.ImageData? = null
+
     private fun loadTickImageData(): com.itextpdf.io.image.ImageData? {
+        cachedTickImageData?.let { return it }
         val assetPaths = listOf(
             "adobe_green_tick.png",
             "flutter_assets/assets/images/adobe_green_tick.png",
@@ -1781,7 +1783,9 @@ class PdfSignatureVerifier(private val context: Context) {
                 val tickBytes = tickStream.readBytes()
                 tickStream.close()
                 if (tickBytes.isNotEmpty()) {
-                    return com.itextpdf.io.image.ImageDataFactory.create(tickBytes)
+                    val data = com.itextpdf.io.image.ImageDataFactory.create(tickBytes)
+                    cachedTickImageData = data
+                    return data
                 }
             } catch (e: Exception) {
                 // try next candidate path

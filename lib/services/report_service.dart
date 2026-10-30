@@ -17,7 +17,7 @@ class ReportService {
     buffer.writeln('╚══════════════════════════════════════════════════════════╝');
     buffer.writeln();
     buffer.writeln('Report Generated: ${dateFormat.format(now)}');
-    buffer.writeln('App Version: PDF Sign Verify v1.0.8');
+    buffer.writeln('App Version: PDF Sign Verify v1.0.9');
     buffer.writeln();
 
     // File Information
