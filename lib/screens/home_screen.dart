@@ -1368,13 +1368,15 @@ class _HomeScreenState extends State<HomeScreen>
 
 
 
-  // URLs for Privacy Policy and Feedback
+    // URLs for Privacy Policy, Terms, Feedback, and Open Source
   static const String privacyPolicyUrl =
       'https://sites.google.com/view/pdf-sign-verify-privacy-policy/home';
-    static const String githubSourceUrl =
-      'https://github.com/bapikirtania13/pdfsignverify';
-static const String feedbackUrl =
+  static const String termsAndConditionsUrl =
+      'https://sites.google.com/view/pdf-sign-verify-terms-and-cond/home';
+  static const String feedbackUrl =
       'https://docs.google.com/forms/d/e/1FAIpQLSfint7zfaiEG7laKRKEFEw2_djnIYaqtoj_jlsc9HiYp1qbaw/viewform?usp=publish-editor';
+  static const String githubSourceUrl =
+      'https://github.com/bapikirtania13/pdfsignverify';
 
   Future<void> _openUrl(String urlString) async {
     final uri = Uri.parse(urlString);
@@ -1492,12 +1494,20 @@ static const String feedbackUrl =
                 ),
                 const SizedBox(height: 18),
 
-                // 4. Privacy Policy & Feedback Links Section
+                // 4. Privacy Policy, Terms, Feedback & Open Source Links Section
                 _buildLinkTile(
                   icon: Icons.privacy_tip_outlined,
                   title: 'Privacy Policy',
                   subtitle: 'Read our data protection & privacy terms',
                   onTap: () => _openUrl(privacyPolicyUrl),
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 10),
+                _buildLinkTile(
+                  icon: Icons.description_outlined,
+                  title: 'Terms & Conditions',
+                  subtitle: 'Read our service terms & legal disclaimer',
+                  onTap: () => _openUrl(termsAndConditionsUrl),
                   isDark: isDark,
                 ),
                 const SizedBox(height: 10),
@@ -1508,7 +1518,7 @@ static const String feedbackUrl =
                   onTap: () => _openUrl(feedbackUrl),
                   isDark: isDark,
                 ),
-const SizedBox(height: 10),
+                const SizedBox(height: 10),
                 _buildLinkTile(
                   icon: Icons.code_rounded,
                   title: 'Source Code & License',
