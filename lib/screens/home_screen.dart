@@ -1444,7 +1444,7 @@ class _HomeScreenState extends State<HomeScreen>
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'v1.0.9 • Digital Signature Engine',
+                    'v1.0.10 • Digital Signature Engine',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
