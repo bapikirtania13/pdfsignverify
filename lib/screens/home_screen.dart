@@ -1371,7 +1371,9 @@ class _HomeScreenState extends State<HomeScreen>
   // URLs for Privacy Policy and Feedback
   static const String privacyPolicyUrl =
       'https://sites.google.com/view/pdf-sign-verify-privacy-policy/home';
-  static const String feedbackUrl =
+    static const String githubSourceUrl =
+      'https://github.com/bapikirtania13/pdfsignverify';
+static const String feedbackUrl =
       'https://docs.google.com/forms/d/e/1FAIpQLSfint7zfaiEG7laKRKEFEw2_djnIYaqtoj_jlsc9HiYp1qbaw/viewform?usp=publish-editor';
 
   Future<void> _openUrl(String urlString) async {
@@ -1504,6 +1506,14 @@ class _HomeScreenState extends State<HomeScreen>
                   title: 'Feedback & Support',
                   subtitle: 'Share suggestions or get technical help',
                   onTap: () => _openUrl(feedbackUrl),
+                  isDark: isDark,
+                ),
+const SizedBox(height: 10),
+                _buildLinkTile(
+                  icon: Icons.code_rounded,
+                  title: 'Source Code & License',
+                  subtitle: 'Open source under GNU AGPLv3 on GitHub',
+                  onTap: () => _openUrl(githubSourceUrl),
                   isDark: isDark,
                 ),
                 const SizedBox(height: 22),

@@ -256,8 +256,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         children: [
           Column(
             children: [
-              // Adobe Acrobat Style Top Status Banner
-              if (hasSignatures) _buildAdobeTopBanner(status, isDark, primarySig!),
+              // Standard Verification Top Status Banner
+              if (hasSignatures) _buildVerificationTopBanner(status, isDark, primarySig!),
               Expanded(
                 child: RotatedBox(
                   quarterTurns: _rotationQuarterTurns,
@@ -367,13 +367,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  /// Adobe Acrobat Top Signature Bar
-  Widget _buildAdobeTopBanner(String status, bool isDark, Map<String, dynamic> sig) {
+  /// Standard Top Signature Status Bar
+  Widget _buildVerificationTopBanner(String status, bool isDark, Map<String, dynamic> sig) {
     final isValid = status == 'VALID';
     final isWarning = status == 'WARNING';
 
     final Color bgColor = isValid
-        ? const Color(0xFF1E7E34) // Official Adobe Green
+        ? const Color(0xFF1E7E34) // Standard Verified Green
         : isWarning
             ? const Color(0xFFD97706)
             : const Color(0xFFDC2626);

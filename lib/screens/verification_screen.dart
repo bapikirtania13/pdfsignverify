@@ -436,7 +436,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
           Row(
             children: [
               Image.asset(
-                'assets/images/adobe_green_tick.png',
+                'assets/images/verified_check_icon.png',
                 width: 26,
                 height: 26,
                 fit: BoxFit.contain,

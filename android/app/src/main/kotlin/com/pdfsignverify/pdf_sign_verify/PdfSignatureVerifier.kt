@@ -1009,7 +1009,7 @@ class PdfSignatureVerifier(private val context: Context) {
 
     /**
      * Generate a verified preview PDF for display where the signature appearance
-     * is updated with the official Adobe-style green checkmark and "Signature valid".
+     * is updated with the standard green checkmark and "Signature valid".
      * The original PDF remains 100% untouched.
      */
     private fun generateVerifiedPreviewPdf(
@@ -1773,9 +1773,9 @@ class PdfSignatureVerifier(private val context: Context) {
     private fun loadTickImageData(): com.itextpdf.io.image.ImageData? {
         cachedTickImageData?.let { return it }
         val assetPaths = listOf(
-            "adobe_green_tick.png",
-            "flutter_assets/assets/images/adobe_green_tick.png",
-            "assets/images/adobe_green_tick.png"
+            "verified_check_icon.png",
+            "flutter_assets/assets/images/verified_check_icon.png",
+            "assets/images/verified_check_icon.png"
         )
         for (path in assetPaths) {
             try {
@@ -1825,9 +1825,9 @@ class PdfSignatureVerifier(private val context: Context) {
         canvas.lineTo((checkX + checkW + s).toDouble(), (checkY + checkH - s).toDouble())
         canvas.stroke()
 
-        // Adobe Green Body (#008822)
-        val adobeGreen = DeviceRgb(0, 136, 34)
-        canvas.setStrokeColor(adobeGreen)
+        // Verified Green Body (#008822)
+        val verifiedGreen = DeviceRgb(0, 136, 34)
+        canvas.setStrokeColor(verifiedGreen)
         canvas.setLineWidth(checkLineWidth)
         canvas.moveTo((checkX).toDouble(), (checkY + checkH * 0.48f).toDouble())
         canvas.lineTo((checkX + checkW * 0.32f).toDouble(), (checkY).toDouble())

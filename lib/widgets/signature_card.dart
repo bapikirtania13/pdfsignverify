@@ -54,8 +54,8 @@ class _SignatureCardState extends State<SignatureCard> {
           // Header
           _buildHeader(sig, status, isDark),
 
-          // Official Adobe-style Signature Stamp (as requested)
-          _buildAdobeSignatureStamp(sig, status, isDark),
+          // Standard Verified Signature Stamp (as requested)
+          _buildVerifiedSignatureStamp(sig, status, isDark),
 
           // Verification checks
           _buildVerificationChecks(sig, isDark),
@@ -732,7 +732,7 @@ class _SignatureCardState extends State<SignatureCard> {
     }
   }
 
-  Widget _buildAdobeSignatureStamp(Map<String, dynamic> sig, String status, bool isDark) {
+  Widget _buildVerifiedSignatureStamp(Map<String, dynamic> sig, String status, bool isDark) {
     final cert = sig['certificate'] as Map<String, dynamic>? ?? {};
     final docSignerName = sig['documentSignerName'] as String?;
     final signerName = docSignerName ??
@@ -754,7 +754,7 @@ class _SignatureCardState extends State<SignatureCard> {
     final isInvalid = status == 'INVALID';
 
     final Color primaryColor = isValid
-        ? const Color(0xFF007A3D) // Adobe Official Green
+        ? const Color(0xFF007A3D) // Verified Official Green
         : isWarning
             ? const Color(0xFFC87000)
             : const Color(0xFFD32F2F);
@@ -808,7 +808,7 @@ class _SignatureCardState extends State<SignatureCard> {
                 margin: const EdgeInsets.only(top: 2),
                 child: isValid
                     ? Image.asset(
-                        'assets/images/adobe_green_tick.png',
+                        'assets/images/verified_check_icon.png',
                         width: 36,
                         height: 36,
                         fit: BoxFit.contain,
@@ -829,7 +829,7 @@ class _SignatureCardState extends State<SignatureCard> {
                       ),
               ),
               const SizedBox(width: 12),
-              // Adobe signature details block matching Image 3
+              // Verified signature details block matching Image 3
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

@@ -66,3 +66,11 @@ release_playstore/
 *.orig
 *.pdf
 phone_screen.png
+
+# Local scratch scripts and development tests
+/*.java
+/*.class
+/*.bat
+/*.ps1
+/run_check.js
+
