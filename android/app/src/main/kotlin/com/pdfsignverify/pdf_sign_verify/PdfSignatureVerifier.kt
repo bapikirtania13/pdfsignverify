@@ -169,7 +169,8 @@ class PdfSignatureVerifier(private val context: Context) {
             result.put("sha256After", sha256After)
             result.put("fileIntact", sha256Before == sha256After)
 
-            // If overall status is VALID or WARNING (or any signature has intact cryptographic integrity), generate verified preview PDF
+            // Only generate verified preview PDF if overall status is VALID or (WARNING with intact cryptographic integrity).
+            // If overall status is INVALID or ERROR, NEVER generate a verified preview PDF!
             var hasCryptographicallyValidSig = false
             for (i in 0 until signaturesArray.length()) {
                 val s = signaturesArray.getJSONObject(i)
@@ -179,7 +180,7 @@ class PdfSignatureVerifier(private val context: Context) {
                     break
                 }
             }
-            val canGeneratePreview = (overallStatus == "VALID" || overallStatus == "WARNING" || hasCryptographicallyValidSig)
+            val canGeneratePreview = (overallStatus == "VALID" || (overallStatus == "WARNING" && hasCryptographicallyValidSig))
             if (canGeneratePreview) {
                 val previewFile = generateVerifiedPreviewPdf(tempFile, signaturesArray, password)
                 if (previewFile != null) {
@@ -298,9 +299,11 @@ class PdfSignatureVerifier(private val context: Context) {
                             for (line in lines) {
                                 val trimmed = line.trim()
                                 val lower = trimmed.lowercase(Locale.ROOT)
-                                if (lower.contains("not verified") || lower.contains("validity unknown") ||
+                                if (isUnverifiedStatusText(trimmed) ||
+                                    lower.contains("not verified") || lower.contains("validity unknown") ||
                                     lower.contains("signature unknown") || lower.contains("signature invalid") ||
-                                    lower.contains("invalid signature") || lower.contains("signature valid")) {
+                                    lower.contains("invalid signature") || lower.contains("signature valid") ||
+                                    lower.contains("unverified") || lower.contains("not valid")) {
                                     continue
                                 }
                                 if (trimmed.isNotEmpty() && !docLines.contains(trimmed)) {
@@ -315,7 +318,11 @@ class PdfSignatureVerifier(private val context: Context) {
                     }
                     if (docLines.isNotEmpty()) break
                 }
-                if (docLines.isNotEmpty()) {
+                val hasGibberish = docLines.any { line ->
+                    line.contains("\\") || line.contains("L J L") || line.contains("VLJQHB") ||
+                    line.contains("QFRPH") || line.contains("HSWW")
+                }
+                if (docLines.isNotEmpty() && !hasGibberish) {
                     sigResult.put("originalTextLines", JSONArray(docLines))
                     if (!docSignerName.isNullOrEmpty()) {
                         sigResult.put("documentSignerName", docSignerName)
@@ -1029,6 +1036,7 @@ class PdfSignatureVerifier(private val context: Context) {
             val pdfDoc = PdfDocument(pdfReader, pdfWriter)
             val signatureUtil = SignatureUtil(pdfDoc)
             val pagesWrapped = mutableSetOf<Int>()
+            var signaturesProcessed = 0
 
             for (i in 0 until signaturesArray.length()) {
                 val sig = signaturesArray.getJSONObject(i)
@@ -1270,9 +1278,25 @@ class PdfSignatureVerifier(private val context: Context) {
                 if (foundAnnot != null) {
                     val apDict = foundAnnot.pdfObject.getAsDictionary(com.itextpdf.kernel.pdf.PdfName.AP)
                     if (apDict != null) {
-                        val (transOk, _) = transformSignatureAppearance(apDict, pdfDoc, tickData)
-                        transformedExistingAppearance = transOk
+                        val transResult = transformSignatureAppearance(apDict, pdfDoc, tickData)
+                        // In-place transformation is only considered successful if the unverified text was actually replaced!
+                        transformedExistingAppearance = transResult.textModified
                     }
+                }
+
+                // Check page content streams for any "Signature Not Verified" and transform them too
+                try {
+                    for (csIdx in 0 until pageToDraw.contentStreamCount) {
+                        val cs = pageToDraw.getContentStream(csIdx)
+                        if (cs != null) {
+                            val csMod = transformStreamText(cs)
+                            if (csMod) {
+                                transformedExistingAppearance = true
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Note transforming page content streams: ${e.message}")
                 }
 
                 if (transformedExistingAppearance) {
@@ -1321,6 +1345,7 @@ class PdfSignatureVerifier(private val context: Context) {
                     canvas.saveState()
                     drawGreenTick(canvas, tickX, tickY, tickW, tickH)
                     canvas.restoreState()
+                    signaturesProcessed++
                     continue
                 }
 
@@ -1337,12 +1362,15 @@ class PdfSignatureVerifier(private val context: Context) {
                 for (rawLine in originalTextLines) {
                     val trimmed = rawLine.trim()
                     val lower = trimmed.lowercase(Locale.ROOT)
-                    if (lower.contains("not verified") ||
+                    if (isUnverifiedStatusText(trimmed) ||
+                        lower.contains("not verified") ||
                         lower.contains("validity unknown") ||
                         lower.contains("signature unknown") ||
                         lower.contains("signature invalid") ||
                         lower.contains("invalid signature") ||
-                        lower.contains("signature valid")
+                        lower.contains("signature valid") ||
+                        lower.contains("unverified") ||
+                        lower.contains("not valid")
                     ) {
                         continue
                     }
@@ -1403,8 +1431,14 @@ class PdfSignatureVerifier(private val context: Context) {
                 // Preserve original document background (e.g. PAN card blue background, document patterns)
                 // The unverified question mark was already eliminated by removing the widget annotation above.
 
+                // Check if extracted body lines look like subset font raw byte gibberish (e.g. "' L J L W D O O \")
+                val hasGibberish = bodyLines.any { line ->
+                    line.contains("\\") || line.contains("L J L") || line.contains("VLJQHB") ||
+                    line.contains("QFRPH") || line.contains("HSWW")
+                }
+
                 // Prepare lines to render: preserve original text lines verbatim, or generate fallback
-                val linesToDraw = if (bodyLines.isNotEmpty()) {
+                val linesToDraw = if (bodyLines.isNotEmpty() && !hasGibberish) {
                     bodyLines
                 } else {
                     val fallback = mutableListOf<String>()
@@ -1632,9 +1666,16 @@ class PdfSignatureVerifier(private val context: Context) {
 
                 canvas.endText()
                 canvas.restoreState()
+                signaturesProcessed++
             }
 
             pdfDoc.close()
+            if (signaturesProcessed == 0) {
+                if (previewFile.exists()) {
+                    previewFile.delete()
+                }
+                return null
+            }
             Log.i(TAG, "Generated verified preview PDF: ${previewFile.absolutePath}")
             return previewFile
         } catch (e: Exception) {
@@ -1643,48 +1684,320 @@ class PdfSignatureVerifier(private val context: Context) {
         }
     }
 
+    data class AppearanceTransformResult(
+        val textModified: Boolean,
+        val n1Modified: Boolean,
+        val anyModified: Boolean
+    )
+
+    /**
+     * Determines whether a text string represents an unverified signature heading/status.
+     * Supports various cases, punctuations (colon, hyphen), spacing, and wording.
+     */
+    private fun isUnverifiedStatusText(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val clean = text.trim().lowercase(Locale.ROOT)
+            .replace(Regex("""\s+"""), " ")
+            .replace(":", "")
+            .replace("-", "")
+            .trim()
+
+        return clean == "signature not verified" ||
+               clean == "signature not valid" ||
+               clean == "validity unknown" ||
+               clean == "signature unknown" ||
+               clean == "signature invalid" ||
+               clean == "invalid signature" ||
+               clean == "not verified" ||
+               clean == "signature not" ||
+               clean == "verified" ||
+               clean == "signature" ||
+               clean == "unverified signature" ||
+               clean == "signature unverified" ||
+               clean == "signature unchecked" ||
+               clean == "signature not checked" ||
+               clean == "signature validity unknown" ||
+               clean.startsWith("signature not verified") ||
+               clean.startsWith("validity unknown") ||
+               clean.startsWith("signature unknown") ||
+               clean.startsWith("invalid signature") ||
+               clean.startsWith("signature invalid") ||
+               clean.startsWith("signature not valid") ||
+               clean.startsWith("not verified")
+    }
+
+    /**
+     * Decode a PDF hexadecimal string (e.g. <5369676e6174757265> or UTF-16BE <005300690067...>)
+     */
+    private fun decodePdfHexString(hex: String): String {
+        return try {
+            val cleanHex = hex.replace(Regex("""\s+"""), "")
+            if (cleanHex.isEmpty() || cleanHex.length % 2 != 0) return ""
+            val bytes = ByteArray(cleanHex.length / 2)
+            for (i in bytes.indices) {
+                bytes[i] = cleanHex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            }
+            if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+                String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+            } else if (bytes.size >= 4 && bytes[0] == 0.toByte()) {
+                String(bytes, Charsets.UTF_16BE)
+            } else {
+                String(bytes, Charsets.ISO_8859_1)
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /**
+     * Comprehensive 5-layer transformation of text inside a PDF content or appearance stream.
+     * Replaces any unverified signature status (in TJ arrays with kerning, literal Tj, hex, or font-scaled)
+     * with "Signature valid".
+     */
+    private fun transformStreamText(stream: com.itextpdf.kernel.pdf.PdfStream): Boolean {
+        val bytes = stream.bytes ?: return false
+        if (bytes.isEmpty()) return false
+        var s = String(bytes, Charsets.ISO_8859_1)
+        var textModified = false
+
+        // 1. Font Scaled Regex: Adjust font size and replace unverified status
+        try {
+            val fontScaledRegex = Regex("""(?i)/(\S+)\s+([\d\.]+)\s+Tf(\s*(?:\r?\n\s*)?\[?\()\s*(?:Signature\s*[:\-]?\s*(?:Not\s+Verified|not\s+verified|Valid|valid|Invalid|invalid|Unknown|unknown|Not\s+Valid|not\s+valid)|Validity\s*[:\-]?\s*(?:Unknown|unknown|Not\s+Verified|not\s+verified)|(?:Invalid|invalid)\s+Signature)""")
+            val fontMatch = fontScaledRegex.find(s)
+            if (fontMatch != null) {
+                val fontName = fontMatch.groupValues[1]
+                val oldSize = fontMatch.groupValues[2].toFloatOrNull() ?: 11.0f
+                val newSize = String.format(Locale.US, "%.2f", oldSize * 1.22f)
+                val prefix = fontMatch.groupValues[3]
+                s = s.replaceRange(fontMatch.range, "/$fontName $newSize Tf${prefix}Signature valid")
+                textModified = true
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Note fontScaledRegex: ${e.message}")
+        }
+
+        // 1b. Split text: e.g. (Signature Not) on line 1, (Verified) on line 2 (standard Income Tax / NSDL signature format)
+        try {
+            val splitSigRegex = Regex("""(?i)(?:\[\s*)?\(\s*Signature\s+Not\s*\)(?:\s*\])?\s*(?:Tj|TJ|')([\s\S]*?)(?:\[\s*)?\(\s*Verified\s*\)(?:\s*\])?\s*(?:Tj|TJ|')""")
+            if (splitSigRegex.containsMatchIn(s)) {
+                s = splitSigRegex.replace(s) { matchResult ->
+                    val middle = matchResult.groupValues[1]
+                    "(Signature valid) Tj${middle}() Tj"
+                }
+                textModified = true
+            }
+
+            val splitSigRegex2 = Regex("""(?i)(?:\[\s*)?\(\s*Signature\s*\)(?:\s*\])?\s*(?:Tj|TJ|')([\s\S]*?)(?:\[\s*)?\(\s*Not\s+Verified\s*\)(?:\s*\])?\s*(?:Tj|TJ|')""")
+            if (splitSigRegex2.containsMatchIn(s)) {
+                s = splitSigRegex2.replace(s) { matchResult ->
+                    val middle = matchResult.groupValues[1]
+                    "(Signature valid) Tj${middle}() Tj"
+                }
+                textModified = true
+            }
+
+            val splitValRegex = Regex("""(?i)(?:\[\s*)?\(\s*Validity\s*\)(?:\s*\])?\s*(?:Tj|TJ|')([\s\S]*?)(?:\[\s*)?\(\s*Unknown\s*\)(?:\s*\])?\s*(?:Tj|TJ|')""")
+            if (splitValRegex.containsMatchIn(s)) {
+                s = splitValRegex.replace(s) { matchResult ->
+                    val middle = matchResult.groupValues[1]
+                    "(Signature valid) Tj${middle}() Tj"
+                }
+                textModified = true
+            }
+
+            // Direct literal checks for split pairs (case-insensitive)
+            val lowerS = s.lowercase(Locale.ROOT)
+            if (lowerS.contains("(signature not)") && lowerS.contains("(verified)")) {
+                val notIdx = lowerS.indexOf("(signature not)")
+                val verIdx = lowerS.indexOf("(verified)")
+                if (notIdx >= 0 && verIdx >= 0) {
+                    s = s.substring(0, notIdx) + "(Signature valid)" + s.substring(notIdx + 15, verIdx) + "()" + s.substring(verIdx + 10)
+                    textModified = true
+                }
+            } else if (lowerS.contains("(signature not)")) {
+                val notIdx = lowerS.indexOf("(signature not)")
+                s = s.substring(0, notIdx) + "(Signature valid)" + s.substring(notIdx + 15)
+                textModified = true
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Note splitSigRegex: ${e.message}")
+        }
+
+        // 2. Parse and transform TJ array with kerning/spacing (e.g. [(Signature ) 12 (Not ) -15 (Verified)] TJ)
+        try {
+            val tjArrayRegex = Regex("""\[([^\]]+)\]\s*TJ""")
+            s = tjArrayRegex.replace(s) { matchResult ->
+                val inner = matchResult.groupValues[1]
+                val strMatcher = Regex("""\(((?:[^()\\\\]|\\.)*)\)""").findAll(inner)
+                val sb = StringBuilder()
+                for (m in strMatcher) {
+                    val piece = cleanPdfString(m.groupValues[1])
+                    if (piece.isNotEmpty()) {
+                        if (sb.isNotEmpty() && !sb.endsWith(" ") && !piece.startsWith(" ")) sb.append(" ")
+                        sb.append(piece)
+                    }
+                }
+                var combinedText = sb.toString().trim()
+
+                if (combinedText.isEmpty()) {
+                    val hexMatcher = Regex("""<([0-9a-fA-F\s]+)>""").findAll(inner)
+                    val hexSb = StringBuilder()
+                    for (m in hexMatcher) {
+                        val piece = decodePdfHexString(m.groupValues[1])
+                        if (piece.isNotEmpty()) {
+                            if (hexSb.isNotEmpty() && !hexSb.endsWith(" ") && !piece.startsWith(" ")) hexSb.append(" ")
+                            hexSb.append(piece)
+                        }
+                    }
+                    combinedText = hexSb.toString().trim()
+                }
+
+                if (isUnverifiedStatusText(combinedText)) {
+                    textModified = true
+                    "[(Signature valid)] TJ"
+                } else {
+                    matchResult.value
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Note tjArrayRegex: ${e.message}")
+        }
+
+        // 3. Match literal strings in Tj or ' operator (e.g. (Signature Not Verified) Tj)
+        try {
+            val tjRegex = Regex("""\(((?:[^()\\\\]|\\.)*)\)\s*(?:Tj|')""")
+            s = tjRegex.replace(s) { matchResult ->
+                val rawStr = matchResult.groupValues[1]
+                val cleanStr = cleanPdfString(rawStr)
+                if (isUnverifiedStatusText(cleanStr)) {
+                    textModified = true
+                    "(Signature valid) Tj"
+                } else {
+                    matchResult.value
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Note tjRegex: ${e.message}")
+        }
+
+        // 4. Hex strings in Tj or ' operator (e.g. <5369676e6174757265204e6f74205665726966696564> Tj)
+        try {
+            val hexTjRegex = Regex("""<([0-9a-fA-F\s]+)>\s*(?:Tj|')""")
+            s = hexTjRegex.replace(s) { matchResult ->
+                val decoded = decodePdfHexString(matchResult.groupValues[1])
+                if (isUnverifiedStatusText(decoded)) {
+                    textModified = true
+                    "(Signature valid) Tj"
+                } else {
+                    matchResult.value
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Note hexTjRegex: ${e.message}")
+        }
+
+        // 5. Direct targets replacement (covers various letter cases and punctuations)
+        val targets = listOf(
+            "Signature Not Verified",
+            "Signature not verified",
+            "Signature Not verified",
+            "Signature not Verified",
+            "SIGNATURE NOT VERIFIED",
+            "Signature: Not Verified",
+            "Signature: not verified",
+            "Signature : Not Verified",
+            "Signature : not verified",
+            "Signature - Not Verified",
+            "Signature - not verified",
+            "Validity Unknown",
+            "validity unknown",
+            "Validity: Unknown",
+            "Validity : Unknown",
+            "VALIDITY UNKNOWN",
+            "Signature Unknown",
+            "signature unknown",
+            "SIGNATURE UNKNOWN",
+            "Signature Invalid",
+            "signature invalid",
+            "SIGNATURE INVALID",
+            "Invalid Signature",
+            "invalid signature",
+            "INVALID SIGNATURE",
+            "Signature Not Valid",
+            "signature not valid",
+            "SIGNATURE NOT VALID",
+            "Signature Unverified",
+            "signature unverified",
+            "SIGNATURE UNVERIFIED"
+        )
+        for (target in targets) {
+            if (s.contains(target)) {
+                s = s.replace(target, "Signature valid")
+                textModified = true
+            }
+        }
+
+        // 6. Regex status fallback
+        if (!textModified) {
+            val statusRegex = Regex("""(?i)signature\s*[:\-]?\s*(?:not\s*verified|unknown|invalid|not\s*valid)|validity\s*[:\-]?\s*(?:unknown|not\s*verified)|invalid\s*signature""")
+            if (statusRegex.containsMatchIn(s)) {
+                s = statusRegex.replace(s, "Signature valid")
+                textModified = true
+            }
+        }
+
+        if (textModified) {
+            stream.setData(s.toByteArray(Charsets.ISO_8859_1))
+        }
+        return textModified
+    }
+
     /**
      * In-place transformation of existing PDF signature appearance streams.
      * Embeds the user's best green tick PNG image into /n1 (or blanks out question mark),
      * and updates status heading (e.g. "Signature Not Verified") to "Signature valid".
      * Preserves all other text lines, fonts, formatting, and background 100% intact.
-     * Returns Pair(wasAppearanceTransformed, wasN1Transformed).
+     * Returns AppearanceTransformResult.
      */
     private fun transformSignatureAppearance(
         apDict: com.itextpdf.kernel.pdf.PdfDictionary,
         pdfDoc: PdfDocument,
         tickData: com.itextpdf.io.image.ImageData?
-    ): Pair<Boolean, Boolean> {
-        var anyModified = false
+    ): AppearanceTransformResult {
+        var textModified = false
         var n1Modified = false
+        var anyModified = false
 
         for (key in apDict.keySet()) {
             val apObj = apDict.get(key)
             if (apObj is com.itextpdf.kernel.pdf.PdfStream) {
-                val (mod, n1) = transformStreamRecursively(apObj, pdfDoc, tickData)
-                if (mod) anyModified = true
-                if (n1) n1Modified = true
+                val subResult = transformStreamRecursively(apObj, pdfDoc, tickData)
+                if (subResult.textModified) textModified = true
+                if (subResult.n1Modified) n1Modified = true
+                if (subResult.anyModified) anyModified = true
             } else if (apObj is com.itextpdf.kernel.pdf.PdfDictionary) {
                 for (subKey in apObj.keySet()) {
                     val subObj = apObj.get(subKey)
                     if (subObj is com.itextpdf.kernel.pdf.PdfStream) {
-                        val (mod, n1) = transformStreamRecursively(subObj, pdfDoc, tickData)
-                        if (mod) anyModified = true
-                        if (n1) n1Modified = true
+                        val subResult = transformStreamRecursively(subObj, pdfDoc, tickData)
+                        if (subResult.textModified) textModified = true
+                        if (subResult.n1Modified) n1Modified = true
+                        if (subResult.anyModified) anyModified = true
                     }
                 }
             }
         }
-        return Pair(anyModified, n1Modified)
+        return AppearanceTransformResult(textModified, n1Modified, anyModified)
     }
 
     private fun transformStreamRecursively(
         stream: com.itextpdf.kernel.pdf.PdfStream,
         pdfDoc: PdfDocument,
         tickData: com.itextpdf.io.image.ImageData?
-    ): Pair<Boolean, Boolean> {
-        var modified = false
+    ): AppearanceTransformResult {
+        var textModified = false
         var n1Modified = false
+        var anyModified = false
 
         val res = stream.getAsDictionary(com.itextpdf.kernel.pdf.PdfName.Resources)
         if (res != null) {
@@ -1696,75 +2009,30 @@ class PdfSignatureVerifier(private val context: Context) {
                     if (n1 != null) {
                         // Completely delete the yellow question mark
                         n1.setData("% DSBlank\n".toByteArray(Charsets.ISO_8859_1))
-                        modified = true
                         n1Modified = true
+                        anyModified = true
                     }
                 }
                 for (k in xobjs.keySet()) {
+                    if (k == n1Name) continue // already blanked above
                     val subStream = xobjs.getAsStream(k)
                     if (subStream != null) {
-                        val (subMod, subN1) = transformStreamRecursively(subStream, pdfDoc, tickData)
-                        if (subMod) modified = true
-                        if (subN1) n1Modified = true
+                        val subResult = transformStreamRecursively(subStream, pdfDoc, tickData)
+                        if (subResult.textModified) textModified = true
+                        if (subResult.n1Modified) n1Modified = true
+                        if (subResult.anyModified) anyModified = true
                     }
                 }
             }
         }
 
-        val bytes = stream.bytes
-        if (bytes != null && bytes.isNotEmpty()) {
-            var s = String(bytes, Charsets.ISO_8859_1)
-            var textModified = false
-            val targets = listOf(
-                "Signature Not Verified",
-                "Signature not verified",
-                "SIGNATURE NOT VERIFIED",
-                "Validity Unknown",
-                "validity unknown",
-                "VALIDITY UNKNOWN",
-                "Signature Unknown",
-                "signature unknown",
-                "SIGNATURE UNKNOWN",
-                "Signature Invalid",
-                "signature invalid",
-                "SIGNATURE INVALID",
-                "Invalid Signature",
-                "invalid signature",
-                "INVALID SIGNATURE",
-                "Signature Not Valid",
-                "signature not valid"
-            )
-            val fontScaledRegex = Regex("""(?i)/(\S+)\s+([\d\.]+)\s+Tf(\s*(?:\r?\n\s*)?\[?\()(?:Signature\s+(?:Not\s+Verified|not\s+verified|Valid|valid|Invalid|invalid|Unknown|unknown)|Validity\s+Unknown|validity\s+unknown)""")
-            val fontMatch = fontScaledRegex.find(s)
-            if (fontMatch != null) {
-                val fontName = fontMatch.groupValues[1]
-                val oldSize = fontMatch.groupValues[2].toFloatOrNull() ?: 11.0f
-                val newSize = String.format(Locale.US, "%.2f", oldSize * 1.22f)
-                val prefix = fontMatch.groupValues[3]
-                s = s.replaceRange(fontMatch.range, "/$fontName $newSize Tf${prefix}Signature valid")
-                textModified = true
-            }
-
-            for (target in targets) {
-                if (s.contains(target)) {
-                    s = s.replace(target, "Signature valid")
-                    textModified = true
-                }
-            }
-            if (!textModified) {
-                val statusRegex = Regex("""(?i)signature\s+not\s+verified|validity\s+unknown|signature\s+unknown|invalid\s+signature|signature\s+invalid""")
-                if (statusRegex.containsMatchIn(s)) {
-                    s = statusRegex.replace(s, "Signature valid")
-                    textModified = true
-                }
-            }
-            if (textModified) {
-                stream.setData(s.toByteArray(Charsets.ISO_8859_1))
-                modified = true
-            }
+        val streamTextMod = transformStreamText(stream)
+        if (streamTextMod) {
+            textModified = true
+            anyModified = true
         }
 
-        return Pair(modified, n1Modified)
+        return AppearanceTransformResult(textModified, n1Modified, anyModified)
     }
 
     @Volatile
@@ -1870,10 +2138,10 @@ class PdfSignatureVerifier(private val context: Context) {
             val p = java.util.regex.Pattern.compile("([-\\d.]+)\\s+([-\\d.]+)\\s+([-\\d.]+)\\s+([-\\d.]+)\\s+([-\\d.]+)\\s+([-\\d.]+)\\s+cm(?:[^Q]*?)/n1\\s+Do")
             val m = p.matcher(s)
             if (m.find()) {
-                val a = m.group(1).toFloatOrNull() ?: 1f
-                val d = m.group(4).toFloatOrNull() ?: 1f
-                val e = m.group(5).toFloatOrNull() ?: 0f
-                val f = m.group(6).toFloatOrNull() ?: 0f
+                val a = m.group(1)?.toFloatOrNull() ?: 1f
+                val d = m.group(4)?.toFloatOrNull() ?: 1f
+                val e = m.group(5)?.toFloatOrNull() ?: 0f
+                val f = m.group(6)?.toFloatOrNull() ?: 0f
 
                 val n1Stream = xobjs.getAsStream(com.itextpdf.kernel.pdf.PdfName("n1"))
                 var bboxW = 100f
@@ -1926,45 +2194,58 @@ class PdfSignatureVerifier(private val context: Context) {
         val bytes = stream.bytes
         if (bytes != null && bytes.isNotEmpty()) {
             val content = String(bytes, Charsets.ISO_8859_1)
-            val tjPattern = java.util.regex.Pattern.compile("\\(((?:[^()\\\\]|\\\\.)*)\\)\\s*Tj")
-            val arrayPattern = java.util.regex.Pattern.compile("\\[([^\\]]+)\\]\\s*TJ")
 
-            val scanner = java.util.Scanner(content)
-            while (scanner.hasNextLine()) {
-                val line = scanner.nextLine().trim()
-                val tj = tjPattern.matcher(line)
-                var foundTj = false
-                val lineSb = StringBuilder()
-                while (tj.find()) {
-                    foundTj = true
-                    val t = cleanPdfString(tj.group(1))
-                    if (t.isNotEmpty()) {
-                        if (lineSb.isNotEmpty()) lineSb.append(" ")
-                        lineSb.append(t)
+            // 1. Extract array text from TJ operator
+            val arrayPattern = java.util.regex.Pattern.compile("\\[([^\\]]+)\\]\\s*TJ")
+            val arrMatcher = arrayPattern.matcher(content)
+            while (arrMatcher.find()) {
+                val inside = arrMatcher.group(1) ?: ""
+                val strMatcher = java.util.regex.Pattern.compile("\\(((?:[^()\\\\]|\\\\.)*)\\)").matcher(inside)
+                val sb = StringBuilder()
+                while (strMatcher.find()) {
+                    val piece = cleanPdfString(strMatcher.group(1) ?: "")
+                    if (piece.isNotEmpty()) {
+                        if (sb.isNotEmpty() && !sb.endsWith(" ") && !piece.startsWith(" ")) sb.append(" ")
+                        sb.append(piece)
                     }
                 }
-                if (foundTj) {
-                    val fullTj = lineSb.toString().trim()
-                    if (fullTj.isNotEmpty() && !result.contains(fullTj)) {
-                        result.add(fullTj)
-                    }
-                } else {
-                    val arr = arrayPattern.matcher(line)
-                    if (arr.find()) {
-                        val inside = arr.group(1)
-                        val strMatcher = java.util.regex.Pattern.compile("\\(((?:[^()\\\\]|\\\\.)*)\\)").matcher(inside)
-                        val sb = StringBuilder()
-                        while (strMatcher.find()) {
-                            sb.append(cleanPdfString(strMatcher.group(1)))
-                        }
-                        val t = sb.toString().trim()
-                        if (t.isNotEmpty() && !result.contains(t)) {
-                            result.add(t)
+                var t = sb.toString().trim()
+                if (t.isEmpty()) {
+                    val hexMatcher = java.util.regex.Pattern.compile("<([0-9a-fA-F\\s]+)>").matcher(inside)
+                    val hexSb = StringBuilder()
+                    while (hexMatcher.find()) {
+                        val piece = decodePdfHexString(hexMatcher.group(1) ?: "")
+                        if (piece.isNotEmpty()) {
+                            if (hexSb.isNotEmpty() && !hexSb.endsWith(" ") && !piece.startsWith(" ")) hexSb.append(" ")
+                            hexSb.append(piece)
                         }
                     }
+                    t = hexSb.toString().trim()
+                }
+                if (t.isNotEmpty() && !result.contains(t)) {
+                    result.add(t)
                 }
             }
-            scanner.close()
+
+            // 2. Extract literal strings from Tj or ' operator
+            val tjPattern = java.util.regex.Pattern.compile("\\(((?:[^()\\\\]|\\\\.)*)\\)\\s*(?:Tj|')")
+            val tjMatcher = tjPattern.matcher(content)
+            while (tjMatcher.find()) {
+                val t = cleanPdfString(tjMatcher.group(1) ?: "")
+                if (t.isNotEmpty() && !result.contains(t)) {
+                    result.add(t)
+                }
+            }
+
+            // 3. Extract hex strings from Tj or ' operator
+            val hexPattern = java.util.regex.Pattern.compile("<([0-9a-fA-F\\s]+)>\\s*(?:Tj|')")
+            val hexMatcher = hexPattern.matcher(content)
+            while (hexMatcher.find()) {
+                val t = decodePdfHexString(hexMatcher.group(1) ?: "").trim()
+                if (t.isNotEmpty() && !result.contains(t)) {
+                    result.add(t)
+                }
+            }
         }
 
         // Recursively inspect child Form XObjects in /Resources /XObject

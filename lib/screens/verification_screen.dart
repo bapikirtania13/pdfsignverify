@@ -249,7 +249,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   Widget _buildActionButtons(BuildContext context, bool isDark, String status) {
     final verifiedPath = result['verifiedPdfPath'] as String?;
-    final hasVerified = verifiedPath != null && File(verifiedPath).existsSync();
+    final overallStatus = result['status'] as String? ?? 'UNKNOWN';
+    final isAllowedVerified = overallStatus == 'VALID' || overallStatus == 'WARNING';
+    final hasVerified = isAllowedVerified && verifiedPath != null && File(verifiedPath).existsSync();
 
     if (status == 'NO_SIGNATURES' || status == 'ERROR') {
       return Column(
@@ -328,7 +330,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         ],
         // 2. View Original Unmodified PDF
         BouncingTap(
-          onTap: () => _openPdfViewer(context, preferVerified: !hasVerified),
+          onTap: () => _openPdfViewer(context, preferVerified: false),
           child: SizedBox(
             width: double.infinity,
             height: 48,
@@ -410,7 +412,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final location = primarySig['location'] as String? ?? '';
     final certInfo = primarySig['certificate'] as Map<String, dynamic>?;
     final caName = _getSimplifiedIssuer(certInfo);
-    final fileIntact = result['fileIntact'] as bool? ?? false;
+    final overallStatus = result['status'] as String? ?? 'UNKNOWN';
+    final sigStatus = primarySig['status'] as String? ?? overallStatus;
+    final sigIntegrity = primarySig['signatureIntegrity'] as bool? ?? false;
+    final docIntegrity = primarySig['documentIntegrity'] as bool? ?? false;
+
+    final isSigValid = sigStatus == 'VALID' && overallStatus == 'VALID';
+    final isSigWarning = (sigStatus == 'WARNING' || overallStatus == 'WARNING') && !isSigValid && sigIntegrity && docIntegrity;
+
+    final Color statusColor = isSigValid
+        ? const Color(0xFF008A2A)
+        : isSigWarning
+            ? AppTheme.warningColor
+            : AppTheme.invalidColor;
+
+    final String badgeText = isSigValid
+        ? '✓ Verified'
+        : isSigWarning
+            ? '⚠ Warning'
+            : '✕ Invalid';
 
     return Container(
       width: double.infinity,
@@ -419,7 +439,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         color: isDark ? AppTheme.darkSurfaceVariant : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFF008A2A).withValues(alpha: 0.25),
+          color: statusColor.withValues(alpha: 0.3),
           width: 1.5,
         ),
         boxShadow: [
@@ -435,12 +455,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
         children: [
           Row(
             children: [
-              Image.asset(
-                'assets/images/verified_check_icon.png',
-                width: 26,
-                height: 26,
-                fit: BoxFit.contain,
-              ),
+              if (isSigValid)
+                Image.asset(
+                  'assets/images/verified_check_icon.png',
+                  width: 26,
+                  height: 26,
+                  fit: BoxFit.contain,
+                )
+              else
+                Icon(
+                  isSigWarning ? Icons.warning_amber_rounded : Icons.cancel_rounded,
+                  color: statusColor,
+                  size: 26,
+                ),
               const SizedBox(width: 10),
               Text(
                 'Signature Details',
@@ -454,15 +481,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF008A2A).withValues(alpha: 0.12),
+                  color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  '✓ Verified',
+                child: Text(
+                  badgeText,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF008A2A),
+                    color: statusColor,
                   ),
                 ),
               ),
@@ -478,9 +505,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
           _buildDetailRow(
             Icons.shield_rounded,
             'Document Integrity',
-            fileIntact ? '✓ Document is authentic & unaltered' : '✗ Modified after signing',
+            !docIntegrity
+                ? '✕ Modified after signing'
+                : !sigIntegrity
+                    ? '✕ Cryptographic verification failed'
+                    : isSigValid
+                        ? '✓ Document is authentic & unaltered'
+                        : '⚠ Integrity intact with warnings',
             isDark,
-            valueColor: fileIntact ? const Color(0xFF008A2A) : AppTheme.invalidColor,
+            valueColor: (!docIntegrity || !sigIntegrity)
+                ? AppTheme.invalidColor
+                : (isSigValid ? const Color(0xFF008A2A) : AppTheme.warningColor),
           ),
           _buildDetailRow(Icons.account_balance_rounded, 'Certified By', caName, isDark),
           _buildDetailRow(Icons.picture_as_pdf_rounded, 'File Name', fileName, isDark),
@@ -1002,7 +1037,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
   void _openPdfViewer(BuildContext context, {bool preferVerified = true}) {
     final verifiedPath = result['verifiedPdfPath'] as String?;
     final cleanOriginalPath = result['originalCleanPdfPath'] as String?;
-    final hasVerified = verifiedPath != null && File(verifiedPath).existsSync();
+    final overallStatus = result['status'] as String? ?? 'UNKNOWN';
+    final isAllowedVerified = overallStatus == 'VALID' || overallStatus == 'WARNING';
+    final hasVerified = isAllowedVerified && verifiedPath != null && File(verifiedPath).existsSync();
     final hasCleanOriginal = cleanOriginalPath != null && File(cleanOriginalPath).existsSync();
     final effectiveOriginalPath = (hasCleanOriginal ? cleanOriginalPath : null) ?? pdfPath;
     final String pathToShow = (preferVerified && hasVerified) ? verifiedPath : effectiveOriginalPath;
@@ -1018,7 +1055,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
           fileName: fileName,
           verificationResult: result,
           password: widget.password,
-          preferVerified: preferVerified,
+          preferVerified: preferVerified && hasVerified,
         ),
       ),
     );

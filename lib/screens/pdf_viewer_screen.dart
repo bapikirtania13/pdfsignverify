@@ -56,7 +56,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void initState() {
     super.initState();
     _activePassword = widget.password;
-    final hasVerified = widget.verifiedPdfPath != null &&
+    final status = widget.verificationResult?['status'] as String? ?? 'UNKNOWN';
+    final isAllowedVerified = status == 'VALID' || status == 'WARNING';
+    final hasVerified = isAllowedVerified &&
+        widget.verifiedPdfPath != null &&
         File(widget.verifiedPdfPath!).existsSync();
 
     if (widget.preferVerified && hasVerified) {
@@ -69,12 +72,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _toggleDisplayMode() {
-    final hasVerified = widget.verifiedPdfPath != null &&
+    final status = widget.verificationResult?['status'] as String? ?? 'UNKNOWN';
+    final isAllowedVerified = status == 'VALID' || status == 'WARNING';
+    final hasVerified = isAllowedVerified &&
+        widget.verifiedPdfPath != null &&
         File(widget.verifiedPdfPath!).existsSync();
 
-    if (!hasVerified &&
-        widget.originalPdfPath == null &&
-        widget.originalCleanPdfPath == null) {
+    if (!hasVerified) {
       return;
     }
 
@@ -435,6 +439,27 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Bottom Security Bar
   Widget _buildBottomSecurityFooter(bool isDark) {
+    final status = widget.verificationResult?['status'] as String? ?? 'UNKNOWN';
+    final isDocInvalid = status == 'INVALID' || status == 'ERROR';
+
+    final IconData footerIcon;
+    final Color footerColor;
+    final String footerText;
+
+    if (isDocInvalid) {
+      footerIcon = Icons.cancel_outlined;
+      footerColor = AppTheme.invalidColor;
+      footerText = 'Viewing unverified document (Digital signature is invalid)';
+    } else if (_isShowingVerified) {
+      footerIcon = Icons.verified_rounded;
+      footerColor = const Color(0xFF00C853);
+      footerText = 'Displaying verified signature appearance with green tick';
+    } else {
+      footerIcon = Icons.lock_rounded;
+      footerColor = isDark ? Colors.white38 : Colors.grey.shade500;
+      footerText = 'Viewing original unmodified PDF file';
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -451,23 +476,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            _isShowingVerified ? Icons.verified_rounded : Icons.lock_rounded,
+            footerIcon,
             size: 14,
-            color: _isShowingVerified
-                ? const Color(0xFF00C853)
-                : (isDark ? Colors.white38 : Colors.grey.shade500),
+            color: footerColor,
           ),
           const SizedBox(width: 6),
           Text(
-            _isShowingVerified
-                ? 'Displaying verified signature appearance with green tick'
-                : 'Viewing original unmodified PDF file',
+            footerText,
             style: TextStyle(
               fontSize: 11,
-              fontWeight: _isShowingVerified ? FontWeight.w600 : FontWeight.normal,
-              color: _isShowingVerified
-                  ? const Color(0xFF00A844)
-                  : (isDark ? Colors.white38 : Colors.grey.shade500),
+              fontWeight: (_isShowingVerified || isDocInvalid) ? FontWeight.w600 : FontWeight.normal,
+              color: footerColor,
             ),
           ),
         ],
@@ -477,6 +496,41 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Signature details bottom modal
   void _showSignatureDetailsModal(BuildContext context, Map<String, dynamic> sig, bool isDark) {
+    final overallStatus = widget.verificationResult?['status'] as String? ?? 'UNKNOWN';
+    final sigStatus = sig['status'] as String? ?? overallStatus;
+    final sigIntegrity = sig['signatureIntegrity'] as bool? ?? false;
+    final docIntegrity = sig['documentIntegrity'] as bool? ?? false;
+
+    final isSigValid = sigStatus == 'VALID' && overallStatus == 'VALID';
+    final isSigWarning = (sigStatus == 'WARNING' || overallStatus == 'WARNING') && !isSigValid && sigIntegrity && docIntegrity;
+    final isSigInvalid = !isSigValid && !isSigWarning;
+
+    final IconData modalIcon = isSigValid
+        ? Icons.verified
+        : isSigWarning
+            ? Icons.warning_amber_rounded
+            : Icons.cancel_rounded;
+
+    final Color modalColor = isSigValid
+        ? const Color(0xFF00C853)
+        : isSigWarning
+            ? AppTheme.warningColor
+            : AppTheme.invalidColor;
+
+    final String modalTitle = isSigValid
+        ? 'Verified Digital Signature'
+        : isSigWarning
+            ? 'Digital Signature Warning'
+            : 'Invalid Digital Signature';
+
+    final String integrityText = !docIntegrity
+        ? 'Document modified after signing'
+        : !sigIntegrity
+            ? 'Cryptographic verification failed'
+            : isSigValid
+                ? 'Document unmodified since signing'
+                : 'Document intact with warnings';
+
     final cert = sig['certificate'] as Map<String, dynamic>? ?? {};
     final signerName = sig['signerName'] as String? ?? cert['commonName'] as String? ?? 'Signer';
     final issuer = cert['issuerOrganization'] as String? ?? cert['issuerCommonName'] as String? ?? 'CA';
@@ -498,11 +552,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.verified, color: Color(0xFF00C853), size: 28),
+                    Icon(modalIcon, color: modalColor, size: 28),
                     const SizedBox(width: 10),
-                    const Text(
-                      'Verified Digital Signature',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    Text(
+                      modalTitle,
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: modalColor),
                     ),
                     const Spacer(),
                     IconButton(
@@ -513,12 +567,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 ),
                 const Divider(),
                 const SizedBox(height: 8),
+                _buildModalDetailRow('Status', isSigValid ? 'VALID' : (isSigWarning ? 'WARNING' : 'INVALID'), valueColor: modalColor),
                 _buildModalDetailRow('Signer Name', signerName),
                 _buildModalDetailRow('Certificate Issuer', issuer),
                 _buildModalDetailRow('Signing Date', signDate),
-                _buildModalDetailRow('Reason', sig['reason'] as String? ?? 'D-Sign'),
-                _buildModalDetailRow('Location', sig['location'] as String? ?? 'E-Dist 2.0'),
-                _buildModalDetailRow('Integrity', 'Document unmodified since signing'),
+                if (sig['reason'] != null && sig['reason'].toString().isNotEmpty && sig['reason'].toString().toLowerCase() != 'null')
+                  _buildModalDetailRow('Reason', sig['reason'].toString()),
+                if (sig['location'] != null && sig['location'].toString().isNotEmpty && sig['location'].toString().toLowerCase() != 'null')
+                  _buildModalDetailRow('Location', sig['location'].toString()),
+                _buildModalDetailRow('Integrity', integrityText, valueColor: isSigInvalid ? AppTheme.invalidColor : (isSigValid ? const Color(0xFF008A2A) : AppTheme.warningColor)),
                 const SizedBox(height: 16),
               ],
             ),
@@ -528,7 +585,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  Widget _buildModalDetailRow(String label, String value) {
+  Widget _buildModalDetailRow(String label, String value, {Color? valueColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -544,7 +601,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+              style: TextStyle(
+                fontWeight: valueColor != null ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+                color: valueColor,
+              ),
             ),
           ),
         ],
