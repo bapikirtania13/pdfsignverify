@@ -8,7 +8,6 @@ import kotlinx.coroutines.*
 import android.os.Bundle
 import android.util.Log
 import com.facebook.ads.AudienceNetworkAds
-import com.facebook.ads.AdSettings
 
 /**
  * MainActivity - Bridge between Flutter UI and native Kotlin verification engine.
@@ -23,10 +22,6 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
-            // Register test device IDs for Meta Audience Network test ads
-            AdSettings.addTestDevice("16e5fbb8-3bab-47e8-8979-db10e145b13e")
-            AdSettings.addTestDevice("9E3F36BF4CF17A398CD866425ED5B2CA")
-
             AudienceNetworkAds.buildInitSettings(this)
                 .withInitListener { result ->
                     Log.d(TAG, "Meta Audience Network initialized: isSuccess=${result.isSuccess}, message=${result.message}")

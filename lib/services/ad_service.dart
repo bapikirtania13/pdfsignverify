@@ -100,14 +100,6 @@ class AdService {
   /// Initialize Mobile Ads SDK and preload rewarded interstitial
   static Future<void> initialize() async {
     try {
-      await MobileAds.instance.updateRequestConfiguration(
-        RequestConfiguration(
-          testDeviceIds: [
-            '9E3F36BF4CF17A398CD866425ED5B2CA',
-            '16e5fbb8-3bab-47e8-8979-db10e145b13e',
-          ],
-        ),
-      );
       final initStatus = await MobileAds.instance.initialize();
       initStatus.adapterStatuses.forEach((adapter, status) {
         debugPrint(
