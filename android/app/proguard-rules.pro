@@ -33,3 +33,24 @@
 -keep class com.google.android.gms.ads.mediation.** { *; }
 -dontwarn com.google.android.gms.ads.mediation.**
 -keep class com.google.ads.mediation.facebook.** { *; }
+
+# AndroidX Startup (prevent crash on InitializationProvider)
+-keep class * extends androidx.startup.Initializer {
+    <init>();
+}
+-keepnames class * extends androidx.startup.Initializer
+
+# AndroidX Room & WorkManager (prevent "Failed to create an instance of androidx.work.impl.WorkDatabase")
+-keep class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+-keep class androidx.room.** { *; }
+-dontwarn androidx.room.**
+-keep class androidx.work.impl.WorkDatabase { *; }
+-keep class androidx.work.impl.WorkDatabase_Impl {
+    <init>();
+}
+-keep class androidx.work.** { *; }
+-dontwarn androidx.work.**
+-keep class androidx.sqlite.** { *; }
+-dontwarn androidx.sqlite.**
