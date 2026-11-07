@@ -57,8 +57,8 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -108,6 +108,10 @@ dependencies {
     
     // JSON serialization
     implementation("org.json:json:20240303")
+    
+    // Google Mobile Ads Mediation Adapter for Meta Audience Network (Facebook)
+    // Certified with Meta Audience Network SDK v6.22
+    implementation("com.google.ads.mediation:facebook:6.22.0.1")
 }
 
 flutter {

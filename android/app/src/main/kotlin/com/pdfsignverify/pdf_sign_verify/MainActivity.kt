@@ -5,7 +5,10 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
+import android.os.Bundle
 import android.util.Log
+import com.facebook.ads.AudienceNetworkAds
+import com.facebook.ads.AdSettings
 
 /**
  * MainActivity - Bridge between Flutter UI and native Kotlin verification engine.
@@ -16,6 +19,23 @@ class MainActivity : FlutterActivity() {
     private val TAG = "PdfSignVerify"
     private var verifier: PdfSignatureVerifier? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            // Register test device IDs for Meta Audience Network test ads
+            AdSettings.addTestDevice("16e5fbb8-3bab-47e8-8979-db10e145b13e")
+            AdSettings.addTestDevice("9E3F36BF4CF17A398CD866425ED5B2CA")
+
+            AudienceNetworkAds.buildInitSettings(this)
+                .withInitListener { result ->
+                    Log.d(TAG, "Meta Audience Network initialized: isSuccess=${result.isSuccess}, message=${result.message}")
+                }
+                .initialize()
+        } catch (e: Exception) {
+            Log.e(TAG, "Meta Audience Network initialization error", e)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
