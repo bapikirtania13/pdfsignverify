@@ -37,6 +37,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Map<String, dynamic> get result => widget.result;
   String get pdfPath => widget.pdfPath;
   String get fileName => widget.fileName;
+  bool _isTechnicalDetailsUnlocked = false;
 
   @override
   Widget build(BuildContext context) {
@@ -522,12 +523,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
           if (certInfo != null) ...[
             const SizedBox(height: 12),
             BouncingTap(
-              onTap: () => _showCertificateModal(context, certInfo, isDark),
+              onTap: () {
+                AdService.showInterstitialAd(
+                  onProceed: () => _showCertificateModal(context, certInfo, isDark),
+                );
+              },
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: null, // handled by BouncingTap
-                  icon: const Icon(Icons.security_rounded, size: 18),
+                  icon: const Icon(Icons.lock_rounded, size: 18),
                   label: const Text(
                     'Inspect Certificate & Trust Chain',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
@@ -851,6 +856,97 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   Widget _buildTechnicalDetailsTile(List<dynamic> signatures, bool isDark) {
+    if (!_isTechnicalDetailsUnlocked) {
+      return Container(
+        decoration: BoxDecoration(
+          color: isDark ? AppTheme.darkSurfaceVariant : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () {
+            AdService.showInterstitialAd(
+              onProceed: () {
+                if (mounted) {
+                  setState(() {
+                    _isTechnicalDetailsUnlocked = true;
+                  });
+                }
+              },
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.lock_rounded,
+                    size: 20,
+                    color: AppTheme.primaryColor,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Advanced Technical Information',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : const Color(0xFF1F2937),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Tap to unlock cryptographic details & raw signatures',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.white60 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_open_rounded, size: 14, color: Colors.white),
+                      SizedBox(width: 4),
+                      Text(
+                        'Unlock',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppTheme.darkSurfaceVariant : Colors.white,
@@ -862,6 +958,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       child: Theme(
         data: ThemeData(dividerColor: Colors.transparent),
         child: ExpansionTile(
+          initiallyExpanded: true,
           title: Text(
             'Advanced Technical Information',
             style: TextStyle(
@@ -870,10 +967,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
               color: isDark ? Colors.white70 : Colors.grey.shade700,
             ),
           ),
-          leading: Icon(
-            Icons.code_rounded,
+          leading: const Icon(
+            Icons.lock_open_rounded,
             size: 20,
-            color: isDark ? Colors.white54 : Colors.grey.shade600,
+            color: Color(0xFF008A2A),
           ),
           children: [
             Padding(
@@ -1162,17 +1259,23 @@ class _VerificationScreenState extends State<VerificationScreen> {
     try {
       final reportPath = await ReportService.generateReport(result);
       if (context.mounted) {
-        AppSnackBar.show(
-          context,
-          content: const Text('Report generated'),
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: 'Share',
-            textColor: Colors.white,
-            onPressed: () => ReportService.shareReport(reportPath),
-          ),
+        AdService.showInterstitialAd(
+          onProceed: () async {
+            if (context.mounted) {
+              AppSnackBar.show(
+                context,
+                content: const Text('Report generated'),
+                duration: const Duration(seconds: 2),
+                action: SnackBarAction(
+                  label: 'Share',
+                  textColor: Colors.white,
+                  onPressed: () => ReportService.shareReport(reportPath),
+                ),
+              );
+              await ReportService.shareReport(reportPath);
+            }
+          },
         );
-        await ReportService.shareReport(reportPath);
       }
     } catch (e) {
       if (context.mounted) {

@@ -23,8 +23,29 @@ Future<void> _initServices() async {
   ]);
 }
 
-class PdfSignVerifyApp extends StatelessWidget {
+class PdfSignVerifyApp extends StatefulWidget {
   const PdfSignVerifyApp({super.key});
+
+  @override
+  State<PdfSignVerifyApp> createState() => _PdfSignVerifyAppState();
+}
+
+class _PdfSignVerifyAppState extends State<PdfSignVerifyApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Only show App Open Ad once on initial app open
+    _showAppOpenOnLaunch();
+  }
+
+  Future<void> _showAppOpenOnLaunch() async {
+    await AdService.waitForInit;
+    // Brief delay to allow initial Flutter frame and UI to render
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (mounted) {
+      AdService.showAppOpenAdIfAvailable();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

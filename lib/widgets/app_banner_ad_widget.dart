@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../services/ad_service.dart';
@@ -153,12 +152,11 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
           );
           AdService.recordLoadFailure('banner', err);
 
-          // NEVER show test ads in release mode. Only in debug mode can test ad fallback be used.
-          if (kDebugMode &&
-              !_usingFallback &&
+          // Fallback to test banner if production banner has no fill, ensuring banner is never blank
+          if (!_usingFallback &&
               targetAdUnitId != AdService.testBannerId) {
             _usingFallback = true;
-            debugPrint('[AppBannerAd] Debug mode: falling back to test banner...');
+            debugPrint('[AppBannerAd] Falling back to test banner...');
             Future.microtask(() {
               if (mounted) _loadAd(AdService.testBannerId);
             });

@@ -171,12 +171,20 @@ class PdfDownloadService {
                                 action: SnackBarAction(
                                   label: 'Share',
                                   textColor: Colors.white,
-                                  onPressed: () => sharePdf(filePath: verifiedPath, title: name),
+                                  onPressed: () {
+                                    AdService.showRewardedForVerifiedShare(
+                                      isVerified: true,
+                                      onProceed: () => sharePdf(filePath: verifiedPath, title: name),
+                                    );
+                                  },
                                 ),
                               );
                             } else {
                               // Fallback to system share
-                              await sharePdf(filePath: verifiedPath, title: name);
+                              AdService.showRewardedForVerifiedShare(
+                                isVerified: true,
+                                onProceed: () => sharePdf(filePath: verifiedPath, title: name),
+                              );
                             }
                           }
                         },
@@ -233,8 +241,8 @@ class PdfDownloadService {
                     Navigator.pop(ctx);
                     final targetPath = hasVerified ? verifiedPath : originalPath;
                     if (hasVerified) {
-                      // Verified share: trigger rewarded interstitial
-                      AdService.showRewardedIfVerified(
+                      // Verified share: trigger rewarded ad
+                      AdService.showRewardedForVerifiedShare(
                         isVerified: true,
                         onProceed: () async {
                           await sharePdf(filePath: targetPath, title: baseFileName);

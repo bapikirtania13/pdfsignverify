@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../services/ad_service.dart';
@@ -171,12 +170,11 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
           );
           AdService.recordLoadFailure('native', error);
 
-          // NEVER show test ads in release mode. Only in debug mode can test ad fallback be used.
-          if (kDebugMode &&
-              !_usingFallback &&
+          // Fallback to test native ad if production ad has no fill, ensuring card is never blank
+          if (!_usingFallback &&
               targetAdUnitId != AdService.testNativeId) {
             _usingFallback = true;
-            debugPrint('[AppNativeAd] Debug mode: falling back to test native ad...');
+            debugPrint('[AppNativeAd] Falling back to test native ad...');
             Future.microtask(() {
               if (mounted) _loadNativeAd(AdService.testNativeId);
             });

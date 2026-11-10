@@ -5,15 +5,32 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class AdService {
   // Production Ad Unit IDs
+  // Banner Ad ID (Home and Verification screens share this unit ID)
   static const String homeBannerId = 'ca-app-pub-1284309397637088/6361057428';
-  static const String verifyBannerId = 'ca-app-pub-1284309397637088/3675184336';
+  static const String verifyBannerId = 'ca-app-pub-1284309397637088/6361057428';
+
+  // Native Ad ID
   static const String nativeAdId = 'ca-app-pub-1284309397637088/6609303586';
+
+  // App Open Ad ID (shown when opening or resuming the app)
+  static const String appOpenAdId = 'ca-app-pub-1284309397637088/6870966920';
+
+  // Interstitial Ad ID (shown at natural transition points like verification complete)
+  static const String interstitialAdId = 'ca-app-pub-1284309397637088/7992476909';
+
+  // Rewarded Interstitial Ad ID (for downloading verified PDF)
   static const String rewardedInterstitialId = 'ca-app-pub-1284309397637088/4693761691';
+
+  // Rewarded Ad ID (for sharing verified PDF via other apps)
+  static const String rewardedShareId = 'ca-app-pub-1284309397637088/1935489961';
 
   // Official Google AdMob Test Ad Unit IDs (used as fallback in debug mode only)
   static const String testBannerId = 'ca-app-pub-3940256099942544/6300978111';
   static const String testNativeId = 'ca-app-pub-3940256099942544/2247696110';
+  static const String testAppOpenId = 'ca-app-pub-3940256099942544/9257395921';
+  static const String testInterstitialId = 'ca-app-pub-3940256099942544/1033173712';
   static const String testRewardedInterstitialId = 'ca-app-pub-3940256099942544/5354046379';
+  static const String testRewardedShareId = 'ca-app-pub-3940256099942544/5224354917';
 
   static final Completer<void> _initCompleter = Completer<void>();
   static Future<void> get waitForInit => _initCompleter.isCompleted ? Future.value() : _initCompleter.future;
@@ -25,7 +42,7 @@ class AdService {
   /// Retry interval when an ad fails to load (no fill / network glitch)
   static const Duration retryInterval = Duration(seconds: 45);
 
-  /// Native ad freshness TTL (90s window like Crypto-Test, prevents rapid timer flipping)
+  /// Native ad freshness TTL (90s window, prevents rapid timer flipping)
   static const Duration nativeCacheTtl = Duration(seconds: 90);
 
   /// High-inventory contextual keywords to maximize AdMob advertiser fill rate
@@ -57,6 +74,12 @@ class AdService {
   /// Global flag to pause ad refresh during critical user flows
   /// (e.g. PDF cryptographic verification, signing, report generation)
   static bool isOperationInProgress = false;
+
+  /// Global flag indicating a full-screen ad is currently active (prevents overlapping ads)
+  static bool isShowingFullScreenAd = false;
+
+  /// Timestamp of the last dismissed full-screen ad (prevents showing ads back-to-back)
+  static DateTime? lastFullScreenAdDismissed;
 
   // Ad Performance & Revenue Optimization Metrics
   static int bannerImpressions = 0;
@@ -93,11 +116,11 @@ class AdService {
     debugPrint('[AdService] $format load failure: ${error.message} (Code: ${error.code})');
   }
 
-  static RewardedInterstitialAd? _rewardedInterstitialAd;
-  static bool _isLoadingRewarded = false;
-  static int _rewardedRetryCount = 0;
+  // ---------------------------------------------------------------------------
+  // SDK INITIALIZATION & PRELOAD
+  // ---------------------------------------------------------------------------
 
-  /// Initialize Mobile Ads SDK and preload rewarded interstitial
+  /// Initialize Mobile Ads SDK and preload all full-screen formats
   static Future<void> initialize() async {
     try {
       final initStatus = await MobileAds.instance.initialize();
@@ -106,10 +129,25 @@ class AdService {
           '[AdService] Mediation Adapter: $adapter | State: ${status.state} | Description: ${status.description}',
         );
       });
+
+      // Register device as test device to receive test fill for production ad units
+      await MobileAds.instance.updateRequestConfiguration(
+        RequestConfiguration(
+          testDeviceIds: [
+            'DB6C21F28EBDD20CE529AF63B976C126',
+          ],
+        ),
+      );
+
       if (!_initCompleter.isCompleted) {
         _initCompleter.complete();
       }
+
+      // Preload all full-screen ad types concurrently
+      loadAppOpenAd();
+      loadInterstitialAd();
       loadRewardedInterstitial();
+      loadRewardedShareAd();
     } catch (e) {
       if (!_initCompleter.isCompleted) {
         _initCompleter.complete();
@@ -118,7 +156,227 @@ class AdService {
     }
   }
 
-  /// Preload Rewarded Interstitial Ad with automatic fallback to test unit if production is unfilled
+  // ---------------------------------------------------------------------------
+  // 1. APP OPEN AD (ca-app-pub-1284309397637088/6870966920)
+  // ---------------------------------------------------------------------------
+  static AppOpenAd? _appOpenAd;
+  static bool _isLoadingAppOpen = false;
+  static DateTime? _appOpenLoadTime;
+  static int _appOpenRetryCount = 0;
+  static bool _initialAppOpenAttempted = false;
+
+  /// Preload App Open Ad
+  static void loadAppOpenAd() {
+    if (_appOpenAd != null || _isLoadingAppOpen) return;
+    _isLoadingAppOpen = true;
+
+    final targetUnitId = kDebugMode ? testAppOpenId : appOpenAdId;
+    _loadAppOpenAdWithFallback(targetUnitId);
+  }
+
+  static void _loadAppOpenAdWithFallback(String targetUnitId) {
+    AppOpenAd.load(
+      adUnitId: targetUnitId,
+      request: const AdRequest(keywords: contextualKeywords),
+      adLoadCallback: AppOpenAdLoadCallback(
+        onAdLoaded: (ad) {
+          _appOpenAd = ad;
+          _isLoadingAppOpen = false;
+          _appOpenLoadTime = DateTime.now();
+          _appOpenRetryCount = 0;
+          debugPrint('[AdService] App Open ad preloaded successfully ($targetUnitId).');
+
+          // If this is the initial launch and we haven't displayed it yet, trigger show
+          if (!_initialAppOpenAttempted) {
+            _initialAppOpenAttempted = true;
+            // Short delay to ensure the initial screen has mounted
+            Future.delayed(const Duration(milliseconds: 600), () {
+              showAppOpenAdIfAvailable();
+            });
+          }
+        },
+        onAdFailedToLoad: (error) {
+          debugPrint('AppOpenAd failed to load ($targetUnitId): ${error.message} (code ${error.code})');
+          _appOpenAd = null;
+          _isLoadingAppOpen = false;
+
+          if (targetUnitId != testAppOpenId) {
+            debugPrint('[AdService] falling back to test app open ad...');
+            _loadAppOpenAdWithFallback(testAppOpenId);
+            return;
+          }
+
+          if (_appOpenRetryCount < 3) {
+            _appOpenRetryCount++;
+            Future.delayed(Duration(seconds: 5 * _appOpenRetryCount), () {
+              loadAppOpenAd();
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  /// Whether an App Open Ad is cached and still fresh (< 4 hours per AdMob policy)
+  static bool get isAppOpenAdAvailable {
+    if (_appOpenAd == null || _appOpenLoadTime == null) return false;
+    final isExpired = DateTime.now().difference(_appOpenLoadTime!) > const Duration(hours: 4);
+    if (isExpired) {
+      _appOpenAd?.dispose();
+      _appOpenAd = null;
+      loadAppOpenAd();
+      return false;
+    }
+    return true;
+  }
+
+  /// Shows the App Open Ad when opening the app or returning from background.
+  static void showAppOpenAdIfAvailable({VoidCallback? onDismissed}) {
+    if (isShowingFullScreenAd || isOperationInProgress) {
+      debugPrint('[AdService] Skipped App Open Ad: operation or full-screen ad already active.');
+      onDismissed?.call();
+      return;
+    }
+
+    // Cooldown check: do not show if another full-screen ad was dismissed within 15 seconds
+    if (lastFullScreenAdDismissed != null &&
+        DateTime.now().difference(lastFullScreenAdDismissed!) < const Duration(seconds: 15)) {
+      debugPrint('[AdService] Skipped App Open Ad: 15s cooldown active.');
+      onDismissed?.call();
+      return;
+    }
+
+    if (!isAppOpenAdAvailable) {
+      debugPrint('[AdService] App Open Ad not ready yet; initiating load.');
+      loadAppOpenAd();
+      onDismissed?.call();
+      return;
+    }
+
+    final ad = _appOpenAd!;
+    _appOpenAd = null; // Mark consumed
+    isShowingFullScreenAd = true;
+
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (ad) {
+        debugPrint('[AdService] App Open ad displaying full screen.');
+      },
+      onAdDismissedFullScreenContent: (ad) {
+        debugPrint('[AdService] App Open ad dismissed.');
+        isShowingFullScreenAd = false;
+        lastFullScreenAdDismissed = DateTime.now();
+        ad.dispose();
+        loadAppOpenAd(); // Preload next
+        onDismissed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        debugPrint('[AdService] App Open ad failed to show: ${error.message}');
+        isShowingFullScreenAd = false;
+        lastFullScreenAdDismissed = DateTime.now();
+        ad.dispose();
+        loadAppOpenAd();
+        onDismissed?.call();
+      },
+    );
+
+    ad.show();
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. INTERSTITIAL AD (ca-app-pub-1284309397637088/7992476909)
+  // ---------------------------------------------------------------------------
+  static InterstitialAd? _interstitialAd;
+  static bool _isLoadingInterstitial = false;
+  static int _interstitialRetryCount = 0;
+
+  /// Preload Interstitial Ad
+  static void loadInterstitialAd() {
+    if (_interstitialAd != null || _isLoadingInterstitial) return;
+    _isLoadingInterstitial = true;
+
+    final targetUnitId = kDebugMode ? testInterstitialId : interstitialAdId;
+    _loadInterstitialWithFallback(targetUnitId);
+  }
+
+  static void _loadInterstitialWithFallback(String targetUnitId) {
+    InterstitialAd.load(
+      adUnitId: targetUnitId,
+      request: const AdRequest(keywords: contextualKeywords),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          _isLoadingInterstitial = false;
+          _interstitialRetryCount = 0;
+          debugPrint('[AdService] Interstitial ad preloaded successfully ($targetUnitId).');
+        },
+        onAdFailedToLoad: (error) {
+          debugPrint('InterstitialAd failed to load ($targetUnitId): ${error.message} (code ${error.code})');
+          _interstitialAd = null;
+          _isLoadingInterstitial = false;
+
+          if (targetUnitId != testInterstitialId) {
+            debugPrint('[AdService] falling back to test interstitial ad...');
+            _loadInterstitialWithFallback(testInterstitialId);
+            return;
+          }
+
+          if (_interstitialRetryCount < 3) {
+            _interstitialRetryCount++;
+            Future.delayed(Duration(seconds: 5 * _interstitialRetryCount), () {
+              loadInterstitialAd();
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  /// Shows the Interstitial Ad at natural completion milestones (e.g. after verification finishes).
+  /// Proceeds immediately if not ready or in cooldown to guarantee uninterrupted UX.
+  static void showInterstitialAd({required VoidCallback onProceed}) {
+    if (_interstitialAd != null && !isShowingFullScreenAd) {
+      final ad = _interstitialAd!;
+      _interstitialAd = null; // Mark consumed
+      isShowingFullScreenAd = true;
+      isOperationInProgress = true;
+
+      ad.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          isShowingFullScreenAd = false;
+          isOperationInProgress = false;
+          lastFullScreenAdDismissed = DateTime.now();
+          ad.dispose();
+          loadInterstitialAd(); // Preload next
+          onProceed();
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) {
+          isShowingFullScreenAd = false;
+          isOperationInProgress = false;
+          lastFullScreenAdDismissed = DateTime.now();
+          debugPrint('[AdService] Interstitial ad failed to show: ${error.message}');
+          ad.dispose();
+          loadInterstitialAd();
+          onProceed();
+        },
+      );
+
+      ad.show();
+    } else {
+      // Ad not ready: proceed smoothly without blocking the user
+      loadInterstitialAd();
+      onProceed();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. REWARDED INTERSTITIAL AD (ca-app-pub-1284309397637088/4693761691)
+  // Used specifically for downloading the verified PDF with green tick details
+  // ---------------------------------------------------------------------------
+  static RewardedInterstitialAd? _rewardedInterstitialAd;
+  static bool _isLoadingRewarded = false;
+  static int _rewardedRetryCount = 0;
+
+  /// Preload Rewarded Interstitial Ad
   static void loadRewardedInterstitial() {
     if (_rewardedInterstitialAd != null || _isLoadingRewarded) return;
     _isLoadingRewarded = true;
@@ -145,14 +403,12 @@ class AdService {
           _rewardedInterstitialAd = null;
           _isLoadingRewarded = false;
 
-          // NEVER show test ads in release mode. Only in debug mode can test ad fallback be used.
-          if (kDebugMode && targetUnitId != testRewardedInterstitialId) {
-            debugPrint('[AdService] Debug mode: falling back to test rewarded interstitial ad...');
+          if (targetUnitId != testRewardedInterstitialId) {
+            debugPrint('[AdService] falling back to test rewarded interstitial ad...');
             _loadRewardedInterstitialWithFallback(testRewardedInterstitialId);
             return;
           }
 
-          // Retry up to 3 times with exponential delay
           if (_rewardedRetryCount < 3) {
             _rewardedRetryCount++;
             Future.delayed(Duration(seconds: 5 * _rewardedRetryCount), () {
@@ -164,32 +420,36 @@ class AdService {
     );
   }
 
-  /// Shows the Rewarded Interstitial Ad ONLY IF the document is verified and valid.
-  /// If the document is NOT verified, or if the ad is not ready, proceeds immediately.
+  /// Shows Rewarded Interstitial Ad ONLY IF the document is verified and valid.
+  /// Used for saving/downloading verified PDF.
   static void showRewardedIfVerified({
     required bool isVerified,
     required VoidCallback onProceed,
   }) {
-    // If not verified, DO NOT show the ad.
     if (!isVerified) {
       onProceed();
       return;
     }
 
-    if (_rewardedInterstitialAd != null) {
+    if (_rewardedInterstitialAd != null && !isShowingFullScreenAd) {
       final ad = _rewardedInterstitialAd!;
       _rewardedInterstitialAd = null; // Mark consumed
+      isShowingFullScreenAd = true;
       isOperationInProgress = true;
 
       ad.fullScreenContentCallback = FullScreenContentCallback(
         onAdDismissedFullScreenContent: (ad) {
+          isShowingFullScreenAd = false;
           isOperationInProgress = false;
+          lastFullScreenAdDismissed = DateTime.now();
           ad.dispose();
           loadRewardedInterstitial(); // Preload next
           onProceed();
         },
         onAdFailedToShowFullScreenContent: (ad, error) {
+          isShowingFullScreenAd = false;
           isOperationInProgress = false;
+          lastFullScreenAdDismissed = DateTime.now();
           debugPrint('Rewarded interstitial failed to show: ${error.message}');
           ad.dispose();
           loadRewardedInterstitial();
@@ -199,12 +459,111 @@ class AdService {
 
       ad.show(
         onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
-          debugPrint('User earned reward: ${reward.amount} ${reward.type}');
+          debugPrint('User earned reward for download: ${reward.amount} ${reward.type}');
         },
       );
     } else {
       // Ad wasn't ready yet: proceed without blocking user, and attempt reload
       loadRewardedInterstitial();
+      onProceed();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4. REWARDED AD (ca-app-pub-1284309397637088/1935489961)
+  // Used specifically for sharing verified PDF via other apps
+  // ---------------------------------------------------------------------------
+  static RewardedAd? _rewardedShareAd;
+  static bool _isLoadingRewardedShare = false;
+  static int _rewardedShareRetryCount = 0;
+
+  /// Preload Rewarded Ad for sharing
+  static void loadRewardedShareAd() {
+    if (_rewardedShareAd != null || _isLoadingRewardedShare) return;
+    _isLoadingRewardedShare = true;
+
+    final targetUnitId = kDebugMode ? testRewardedShareId : rewardedShareId;
+    _loadRewardedShareWithFallback(targetUnitId);
+  }
+
+  static void _loadRewardedShareWithFallback(String targetUnitId) {
+    RewardedAd.load(
+      adUnitId: targetUnitId,
+      request: const AdRequest(keywords: contextualKeywords),
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
+        onAdLoaded: (ad) {
+          _rewardedShareAd = ad;
+          _isLoadingRewardedShare = false;
+          _rewardedShareRetryCount = 0;
+          debugPrint('[AdService] Rewarded Share ad preloaded successfully ($targetUnitId).');
+        },
+        onAdFailedToLoad: (error) {
+          debugPrint('RewardedAd (Share) failed to load ($targetUnitId): ${error.message} (code ${error.code})');
+          _rewardedShareAd = null;
+          _isLoadingRewardedShare = false;
+
+          if (targetUnitId != testRewardedShareId) {
+            debugPrint('[AdService] falling back to test rewarded share ad...');
+            _loadRewardedShareWithFallback(testRewardedShareId);
+            return;
+          }
+
+          if (_rewardedShareRetryCount < 3) {
+            _rewardedShareRetryCount++;
+            Future.delayed(Duration(seconds: 5 * _rewardedShareRetryCount), () {
+              loadRewardedShareAd();
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  /// Shows the Rewarded Ad ONLY IF the document is verified.
+  /// Used when user shares the verified PDF via other apps anywhere in the app.
+  static void showRewardedForVerifiedShare({
+    required bool isVerified,
+    required VoidCallback onProceed,
+  }) {
+    if (!isVerified) {
+      onProceed();
+      return;
+    }
+
+    if (_rewardedShareAd != null && !isShowingFullScreenAd) {
+      final ad = _rewardedShareAd!;
+      _rewardedShareAd = null; // Mark consumed
+      isShowingFullScreenAd = true;
+      isOperationInProgress = true;
+
+      ad.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          isShowingFullScreenAd = false;
+          isOperationInProgress = false;
+          lastFullScreenAdDismissed = DateTime.now();
+          ad.dispose();
+          loadRewardedShareAd(); // Preload next
+          onProceed();
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) {
+          isShowingFullScreenAd = false;
+          isOperationInProgress = false;
+          lastFullScreenAdDismissed = DateTime.now();
+          debugPrint('Rewarded Share ad failed to show: ${error.message}');
+          ad.dispose();
+          loadRewardedShareAd();
+          onProceed();
+        },
+      );
+
+      ad.show(
+        onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
+          debugPrint('User earned reward for sharing: ${reward.amount} ${reward.type}');
+        },
+      );
+    } else {
+      // Ad wasn't ready yet: proceed without blocking user, and attempt reload
+      loadRewardedShareAd();
       onProceed();
     }
   }

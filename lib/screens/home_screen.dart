@@ -158,17 +158,30 @@ class _HomeScreenState extends State<HomeScreen>
             _selectedFileSize = file.size;
           });
         } else {
-          // Multiple PDFs selected
+          // Multiple PDFs selected - maximum 3 PDFs allowed
+          final wasOverLimit = result.files.length > 3;
+          final selectedFiles = result.files
+              .where((f) => f.path != null)
+              .take(3)
+              .toList();
+
           setState(() {
             _selectedFilePath = null;
             _selectedFileUri = null;
             _selectedFileName = null;
             _selectedFileSize = null;
-            _batchItems = result.files
-                .where((f) => f.path != null)
+            _batchItems = selectedFiles
                 .map((f) => BatchPdfItem(name: f.name, path: f.path!, size: f.size))
                 .toList();
           });
+
+          if (wasOverLimit && mounted) {
+            AppSnackBar.show(
+              context,
+              message: 'Maximum 3 PDFs allowed at once. Selected the first 3 PDFs.',
+              duration: const Duration(seconds: 3),
+            );
+          }
         }
       }
     } catch (e) {
@@ -830,7 +843,16 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 16),
           // Button to verify batch
           BouncingTap(
-            onTap: _isVerifying ? null : _verifyBatch,
+            onTap: _isVerifying
+                ? null
+                : () {
+                    if (_batchItems.isEmpty) return;
+                    AdService.showInterstitialAd(
+                      onProceed: () {
+                        _verifyBatch();
+                      },
+                    );
+                  },
             child: SizedBox(
               width: double.infinity,
               height: 48,
@@ -1308,7 +1330,16 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildVerifyButton(ColorScheme colorScheme) {
     return BouncingTap(
-      onTap: _isVerifying ? null : _verifySignature,
+      onTap: _isVerifying
+          ? null
+          : () {
+              if (_selectedFilePath == null) return;
+              AdService.showInterstitialAd(
+                onProceed: () {
+                  _verifySignature();
+                },
+              );
+            },
       child: SizedBox(
         width: double.infinity,
         height: 54,
@@ -1444,7 +1475,7 @@ class _HomeScreenState extends State<HomeScreen>
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'v1.0.11 • Digital Signature Engine',
+                    'v1.0.15 • Digital Signature Engine',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
