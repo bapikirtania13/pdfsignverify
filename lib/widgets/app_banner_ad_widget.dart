@@ -12,7 +12,6 @@ import '../theme/app_theme.dart';
 /// - App lifecycle awareness (WidgetsBindingObserver pauses refresh and retry in background, resumes on foreground).
 /// - Resilient 45s auto-retry when unfilled or recovering from network issues.
 /// - Operation protection: pauses refresh while PDF signing/verification is in progress.
-/// - Debug mode test ad fallback for reliable local developer verification.
 /// - Polished design with light/dark theme support, subtle borders, and non-intrusive AD badge.
 class AppBannerAdWidget extends StatefulWidget {
   final String adUnitId;
@@ -35,7 +34,6 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
   BannerAd? _bannerAd;
   bool _isAdLoaded = false;
   bool _isLoading = false;
-  bool _usingFallback = false;
   Timer? _refreshTimer;
   Timer? _retryTimer;
   bool _isPaused = false;
@@ -79,7 +77,6 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
     _retryTimer = Timer(AdService.retryInterval, () {
       if (mounted && !_isPaused && !_isAdLoaded) {
         debugPrint('[AppBannerAd] Retrying banner load after ${AdService.retryInterval.inSeconds}s until filled...');
-        _usingFallback = false;
         _loadAd(widget.adUnitId);
       }
     });
@@ -106,7 +103,6 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
         return;
       }
 
-      _usingFallback = false;
       _loadAd(widget.adUnitId);
     });
   }
@@ -152,27 +148,17 @@ class _AppBannerAdWidgetState extends State<AppBannerAdWidget>
           );
           AdService.recordLoadFailure('banner', err);
 
-          // Fallback to test banner if production banner has no fill, ensuring banner is never blank
-          if (!_usingFallback &&
-              targetAdUnitId != AdService.testBannerId) {
-            _usingFallback = true;
-            debugPrint('[AppBannerAd] Falling back to test banner...');
-            Future.microtask(() {
-              if (mounted) _loadAd(AdService.testBannerId);
-            });
-          } else {
-            if (_bannerAd == null) {
-              if (mounted) {
-                setState(() {
-                  _isAdLoaded = false;
-                });
-              }
-              // If no banner is displayed, retry periodically every 45s
-              _scheduleRetry();
-            } else {
-              // Existing banner is still visible on screen; re-arm refresh timer for next cycle
-              _scheduleAutoRefresh();
+          if (_bannerAd == null) {
+            if (mounted) {
+              setState(() {
+                _isAdLoaded = false;
+              });
             }
+            // If no banner is displayed, retry periodically every 45s
+            _scheduleRetry();
+          } else {
+            // Existing banner is still visible on screen; re-arm refresh timer for next cycle
+            _scheduleAutoRefresh();
           }
         },
         onAdImpression: (ad) {

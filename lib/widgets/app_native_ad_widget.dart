@@ -15,7 +15,6 @@ import '../theme/app_theme.dart';
 /// - Seamless swapping: loads new ad in background before disposing old ad to eliminate layout flicker.
 /// - Auto-retry every 45s when no ad is loaded (network recovery / backoff).
 /// - Contextual keyword targeting for document verification.
-/// - Debug mode test ad fallback for local testing.
 /// - Collapses to SizedBox.shrink() if no ad is loaded, avoiding empty blank spaces.
 class AppNativeAdWidget extends StatefulWidget {
   final String adUnitId;
@@ -38,7 +37,6 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
   NativeAd? _nativeAd;
   bool _isAdLoaded = false;
   bool _isLoading = false;
-  bool _usingFallback = false;
   bool _isInitialized = false;
   Timer? _retryTimer;
   bool _isPaused = false;
@@ -91,7 +89,6 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
     _retryTimer = Timer(AdService.retryInterval, () {
       if (mounted && !_isPaused && !_isAdLoaded) {
         debugPrint('[AppNativeAd] Retrying native ad load after ${AdService.retryInterval.inSeconds}s until filled...');
-        _usingFallback = false;
         _loadNativeAd(widget.adUnitId);
       }
     });
@@ -170,24 +167,14 @@ class _AppNativeAdWidgetState extends State<AppNativeAdWidget>
           );
           AdService.recordLoadFailure('native', error);
 
-          // Fallback to test native ad if production ad has no fill, ensuring card is never blank
-          if (!_usingFallback &&
-              targetAdUnitId != AdService.testNativeId) {
-            _usingFallback = true;
-            debugPrint('[AppNativeAd] Falling back to test native ad...');
-            Future.microtask(() {
-              if (mounted) _loadNativeAd(AdService.testNativeId);
-            });
-          } else {
-            if (_nativeAd == null) {
-              if (mounted) {
-                setState(() {
-                  _isAdLoaded = false;
-                });
-              }
-              // No ad is showing: schedule periodic retry until filled
-              _scheduleRetry();
+          if (_nativeAd == null) {
+            if (mounted) {
+              setState(() {
+                _isAdLoaded = false;
+              });
             }
+            // No ad is showing: schedule periodic retry until filled
+            _scheduleRetry();
           }
         },
         onAdImpression: (ad) {

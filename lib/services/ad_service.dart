@@ -24,14 +24,6 @@ class AdService {
   // Rewarded Ad ID (for sharing verified PDF via other apps)
   static const String rewardedShareId = 'ca-app-pub-1284309397637088/1935489961';
 
-  // Official Google AdMob Test Ad Unit IDs (used as fallback in debug mode only)
-  static const String testBannerId = 'ca-app-pub-3940256099942544/6300978111';
-  static const String testNativeId = 'ca-app-pub-3940256099942544/2247696110';
-  static const String testAppOpenId = 'ca-app-pub-3940256099942544/9257395921';
-  static const String testInterstitialId = 'ca-app-pub-3940256099942544/1033173712';
-  static const String testRewardedInterstitialId = 'ca-app-pub-3940256099942544/5354046379';
-  static const String testRewardedShareId = 'ca-app-pub-3940256099942544/5224354917';
-
   static final Completer<void> _initCompleter = Completer<void>();
   static Future<void> get waitForInit => _initCompleter.isCompleted ? Future.value() : _initCompleter.future;
 
@@ -130,12 +122,10 @@ class AdService {
         );
       });
 
-      // Register device as test device to receive test fill for production ad units
+      // Configure MobileAds with empty test device IDs to ensure live ads are always served
       await MobileAds.instance.updateRequestConfiguration(
         RequestConfiguration(
-          testDeviceIds: [
-            'DB6C21F28EBDD20CE529AF63B976C126',
-          ],
+          testDeviceIds: const <String>[],
         ),
       );
 
@@ -170,13 +160,8 @@ class AdService {
     if (_appOpenAd != null || _isLoadingAppOpen) return;
     _isLoadingAppOpen = true;
 
-    final targetUnitId = kDebugMode ? testAppOpenId : appOpenAdId;
-    _loadAppOpenAdWithFallback(targetUnitId);
-  }
-
-  static void _loadAppOpenAdWithFallback(String targetUnitId) {
     AppOpenAd.load(
-      adUnitId: targetUnitId,
+      adUnitId: appOpenAdId,
       request: const AdRequest(keywords: contextualKeywords),
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (ad) {
@@ -184,7 +169,7 @@ class AdService {
           _isLoadingAppOpen = false;
           _appOpenLoadTime = DateTime.now();
           _appOpenRetryCount = 0;
-          debugPrint('[AdService] App Open ad preloaded successfully ($targetUnitId).');
+          debugPrint('[AdService] App Open ad preloaded successfully ($appOpenAdId).');
 
           // If this is the initial launch and we haven't displayed it yet, trigger show
           if (!_initialAppOpenAttempted) {
@@ -196,15 +181,9 @@ class AdService {
           }
         },
         onAdFailedToLoad: (error) {
-          debugPrint('AppOpenAd failed to load ($targetUnitId): ${error.message} (code ${error.code})');
+          debugPrint('AppOpenAd failed to load ($appOpenAdId): ${error.message} (code ${error.code})');
           _appOpenAd = null;
           _isLoadingAppOpen = false;
-
-          if (targetUnitId != testAppOpenId) {
-            debugPrint('[AdService] falling back to test app open ad...');
-            _loadAppOpenAdWithFallback(testAppOpenId);
-            return;
-          }
 
           if (_appOpenRetryCount < 3) {
             _appOpenRetryCount++;
@@ -294,31 +273,20 @@ class AdService {
     if (_interstitialAd != null || _isLoadingInterstitial) return;
     _isLoadingInterstitial = true;
 
-    final targetUnitId = kDebugMode ? testInterstitialId : interstitialAdId;
-    _loadInterstitialWithFallback(targetUnitId);
-  }
-
-  static void _loadInterstitialWithFallback(String targetUnitId) {
     InterstitialAd.load(
-      adUnitId: targetUnitId,
+      adUnitId: interstitialAdId,
       request: const AdRequest(keywords: contextualKeywords),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _interstitialAd = ad;
           _isLoadingInterstitial = false;
           _interstitialRetryCount = 0;
-          debugPrint('[AdService] Interstitial ad preloaded successfully ($targetUnitId).');
+          debugPrint('[AdService] Interstitial ad preloaded successfully ($interstitialAdId).');
         },
         onAdFailedToLoad: (error) {
-          debugPrint('InterstitialAd failed to load ($targetUnitId): ${error.message} (code ${error.code})');
+          debugPrint('InterstitialAd failed to load ($interstitialAdId): ${error.message} (code ${error.code})');
           _interstitialAd = null;
           _isLoadingInterstitial = false;
-
-          if (targetUnitId != testInterstitialId) {
-            debugPrint('[AdService] falling back to test interstitial ad...');
-            _loadInterstitialWithFallback(testInterstitialId);
-            return;
-          }
 
           if (_interstitialRetryCount < 3) {
             _interstitialRetryCount++;
@@ -381,33 +349,22 @@ class AdService {
     if (_rewardedInterstitialAd != null || _isLoadingRewarded) return;
     _isLoadingRewarded = true;
 
-    final targetUnitId = kDebugMode ? testRewardedInterstitialId : rewardedInterstitialId;
-    _loadRewardedInterstitialWithFallback(targetUnitId);
-  }
-
-  static void _loadRewardedInterstitialWithFallback(String targetUnitId) {
     RewardedInterstitialAd.load(
-      adUnitId: targetUnitId,
+      adUnitId: rewardedInterstitialId,
       request: const AdRequest(keywords: contextualKeywords),
       rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _rewardedInterstitialAd = ad;
           _isLoadingRewarded = false;
           _rewardedRetryCount = 0;
-          debugPrint('[AdService] Rewarded interstitial preloaded successfully ($targetUnitId).');
+          debugPrint('[AdService] Rewarded interstitial preloaded successfully ($rewardedInterstitialId).');
         },
         onAdFailedToLoad: (error) {
           debugPrint(
-            'RewardedInterstitialAd failed to load ($targetUnitId): ${error.message} (code ${error.code})',
+            'RewardedInterstitialAd failed to load ($rewardedInterstitialId): ${error.message} (code ${error.code})',
           );
           _rewardedInterstitialAd = null;
           _isLoadingRewarded = false;
-
-          if (targetUnitId != testRewardedInterstitialId) {
-            debugPrint('[AdService] falling back to test rewarded interstitial ad...');
-            _loadRewardedInterstitialWithFallback(testRewardedInterstitialId);
-            return;
-          }
 
           if (_rewardedRetryCount < 3) {
             _rewardedRetryCount++;
@@ -482,31 +439,20 @@ class AdService {
     if (_rewardedShareAd != null || _isLoadingRewardedShare) return;
     _isLoadingRewardedShare = true;
 
-    final targetUnitId = kDebugMode ? testRewardedShareId : rewardedShareId;
-    _loadRewardedShareWithFallback(targetUnitId);
-  }
-
-  static void _loadRewardedShareWithFallback(String targetUnitId) {
     RewardedAd.load(
-      adUnitId: targetUnitId,
+      adUnitId: rewardedShareId,
       request: const AdRequest(keywords: contextualKeywords),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
           _rewardedShareAd = ad;
           _isLoadingRewardedShare = false;
           _rewardedShareRetryCount = 0;
-          debugPrint('[AdService] Rewarded Share ad preloaded successfully ($targetUnitId).');
+          debugPrint('[AdService] Rewarded Share ad preloaded successfully ($rewardedShareId).');
         },
         onAdFailedToLoad: (error) {
-          debugPrint('RewardedAd (Share) failed to load ($targetUnitId): ${error.message} (code ${error.code})');
+          debugPrint('RewardedAd (Share) failed to load ($rewardedShareId): ${error.message} (code ${error.code})');
           _rewardedShareAd = null;
           _isLoadingRewardedShare = false;
-
-          if (targetUnitId != testRewardedShareId) {
-            debugPrint('[AdService] falling back to test rewarded share ad...');
-            _loadRewardedShareWithFallback(testRewardedShareId);
-            return;
-          }
 
           if (_rewardedShareRetryCount < 3) {
             _rewardedShareRetryCount++;
