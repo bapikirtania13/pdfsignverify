@@ -365,7 +365,17 @@ class AdService {
         },
       );
 
-      ad.show();
+      try {
+        ad.show();
+      } catch (e) {
+        isShowingFullScreenAd = false;
+        isOperationInProgress = false;
+        lastFullScreenAdDismissed = DateTime.now();
+        debugPrint('[AdService] Exception displaying interstitial ad: $e');
+        ad.dispose();
+        loadInterstitialAd();
+        onProceed();
+      }
     } else {
       // Ad not ready: proceed smoothly without blocking the user
       loadInterstitialAd();
@@ -451,11 +461,21 @@ class AdService {
         },
       );
 
-      ad.show(
-        onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
-          debugPrint('User earned reward for download: ${reward.amount} ${reward.type}');
-        },
-      );
+      try {
+        ad.show(
+          onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
+            debugPrint('User earned reward for download: ${reward.amount} ${reward.type}');
+          },
+        );
+      } catch (e) {
+        isShowingFullScreenAd = false;
+        isOperationInProgress = false;
+        lastFullScreenAdDismissed = DateTime.now();
+        debugPrint('[AdService] Exception displaying rewarded interstitial ad: $e');
+        ad.dispose();
+        loadRewardedInterstitial();
+        onProceed();
+      }
     } else {
       // Ad wasn't ready yet: proceed without blocking user, and attempt reload
       loadRewardedInterstitial();
@@ -539,11 +559,21 @@ class AdService {
         },
       );
 
-      ad.show(
-        onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
-          debugPrint('User earned reward for sharing: ${reward.amount} ${reward.type}');
-        },
-      );
+      try {
+        ad.show(
+          onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
+            debugPrint('User earned reward for sharing: ${reward.amount} ${reward.type}');
+          },
+        );
+      } catch (e) {
+        isShowingFullScreenAd = false;
+        isOperationInProgress = false;
+        lastFullScreenAdDismissed = DateTime.now();
+        debugPrint('[AdService] Exception displaying rewarded share ad: $e');
+        ad.dispose();
+        loadRewardedShareAd();
+        onProceed();
+      }
     } else {
       // Ad wasn't ready yet: proceed without blocking user, and attempt reload
       loadRewardedShareAd();
