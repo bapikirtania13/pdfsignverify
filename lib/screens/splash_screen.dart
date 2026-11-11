@@ -155,7 +155,7 @@ class _SplashScreenState extends State<SplashScreen>
                 delay: const Duration(milliseconds: 350),
                 duration: const Duration(milliseconds: 400),
                 child: Text(
-                  'v1.0.17',
+                  'v1.0.18',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.white.withValues(alpha: 0.5),
