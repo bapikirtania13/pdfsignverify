@@ -122,12 +122,25 @@ class AdService {
         );
       });
 
-      // Configure MobileAds with empty test device IDs to ensure live ads are always served
+      // Enforce live ads: empty testDeviceIds ensures test ads are never returned
       await MobileAds.instance.updateRequestConfiguration(
         RequestConfiguration(
           testDeviceIds: const <String>[],
         ),
       );
+
+      // Start listening for app lifecycle events (foregrounding / app resume)
+      try {
+        await AppStateEventNotifier.startListening();
+        AppStateEventNotifier.appStateStream.listen((state) {
+          if (state == AppState.foreground) {
+            debugPrint('[AdService] App foregrounded -> checking App Open Ad...');
+            showAppOpenAdIfAvailable();
+          }
+        });
+      } catch (e) {
+        debugPrint('[AdService] AppStateEventNotifier initialization error: $e');
+      }
 
       if (!_initCompleter.isCompleted) {
         _initCompleter.complete();
@@ -153,7 +166,23 @@ class AdService {
   static bool _isLoadingAppOpen = false;
   static DateTime? _appOpenLoadTime;
   static int _appOpenRetryCount = 0;
-  static bool _initialAppOpenAttempted = false;
+  static Completer<bool>? _firstAppOpenCompleter;
+
+  /// Waits for the initial App Open Ad to finish loading (returns true if loaded, false if timed out or failed).
+  static Future<bool> waitForFirstAppOpenAd({
+    Duration timeout = const Duration(milliseconds: 2500),
+  }) async {
+    if (isAppOpenAdAvailable) return true;
+    _firstAppOpenCompleter ??= Completer<bool>();
+    try {
+      return await _firstAppOpenCompleter!.future.timeout(
+        timeout,
+        onTimeout: () => false,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Preload App Open Ad
   static void loadAppOpenAd() {
@@ -171,19 +200,18 @@ class AdService {
           _appOpenRetryCount = 0;
           debugPrint('[AdService] App Open ad preloaded successfully ($appOpenAdId).');
 
-          // If this is the initial launch and we haven't displayed it yet, trigger show
-          if (!_initialAppOpenAttempted) {
-            _initialAppOpenAttempted = true;
-            // Short delay to ensure the initial screen has mounted
-            Future.delayed(const Duration(milliseconds: 600), () {
-              showAppOpenAdIfAvailable();
-            });
+          if (_firstAppOpenCompleter != null && !_firstAppOpenCompleter!.isCompleted) {
+            _firstAppOpenCompleter!.complete(true);
           }
         },
         onAdFailedToLoad: (error) {
           debugPrint('AppOpenAd failed to load ($appOpenAdId): ${error.message} (code ${error.code})');
           _appOpenAd = null;
           _isLoadingAppOpen = false;
+
+          if (_firstAppOpenCompleter != null && !_firstAppOpenCompleter!.isCompleted) {
+            _firstAppOpenCompleter!.complete(false);
+          }
 
           if (_appOpenRetryCount < 3) {
             _appOpenRetryCount++;
@@ -258,7 +286,16 @@ class AdService {
       },
     );
 
-    ad.show();
+    try {
+      ad.show();
+    } catch (e) {
+      debugPrint('[AdService] Exception displaying App Open Ad: $e');
+      isShowingFullScreenAd = false;
+      lastFullScreenAdDismissed = DateTime.now();
+      ad.dispose();
+      loadAppOpenAd();
+      onDismissed?.call();
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
 import 'home_screen.dart';
+import '../services/ad_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,6 +15,7 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
@@ -27,22 +29,48 @@ class _SplashScreenState extends State<SplashScreen>
     );
     _controller.forward();
 
-    // Fast, responsive startup (no slow loading spinner delay)
-    Timer(const Duration(milliseconds: 1100), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const HomeScreen(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: const Duration(milliseconds: 300),
-          ),
-        );
-      }
-    });
+    _handleStartupAndAppOpenAd();
+  }
+
+  Future<void> _handleStartupAndAppOpenAd() async {
+    // Keep splash animation visible for a minimum duration to guarantee smooth branding UX
+    final minSplashFuture = Future.delayed(const Duration(milliseconds: 1000));
+
+    // Concurrently wait for App Open Ad to finish preloading (capped at 2500ms timeout)
+    final adLoaded = await AdService.waitForFirstAppOpenAd(
+      timeout: const Duration(milliseconds: 2500),
+    );
+
+    await minSplashFuture;
+    if (!mounted || _hasNavigated) return;
+
+    if (adLoaded && AdService.isAppOpenAdAvailable) {
+      AdService.showAppOpenAdIfAvailable(
+        onDismissed: () {
+          if (mounted && !_hasNavigated) {
+            _navigateToHome();
+          }
+        },
+      );
+    } else {
+      _navigateToHome();
+    }
+  }
+
+  void _navigateToHome() {
+    if (_hasNavigated) return;
+    _hasNavigated = true;
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const HomeScreen(),
+        transitionsBuilder:
+            (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
   }
 
   @override
@@ -127,7 +155,7 @@ class _SplashScreenState extends State<SplashScreen>
                 delay: const Duration(milliseconds: 350),
                 duration: const Duration(milliseconds: 400),
                 child: Text(
-                  'v1.0.16',
+                  'v1.0.17',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.white.withValues(alpha: 0.5),
